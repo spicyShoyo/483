@@ -11,11 +11,11 @@
 #define KernelRadius 2
 #define TileWidth 8
 #define BlockWidth TileWidth+KernelWidth-1
-#define RoutingX 60
+#define RoutingX 79
 #define RoutingWidth 512
 //#define RoutingY 490
-#define RoutingY 495
-#define RoutingHeight 64
+#define RoutingY 500
+#define RoutingHeight 55
 //#define MoneyX 910
 #define MoneyX 922
 #define MoneyWidth 200
@@ -34,7 +34,7 @@ void cuCheck(int line) {
         printf("Error: %s, %d\n", cudaGetErrorString(err), line);
     }
 }
-//nvcc -arch sm_20 checkReader.cu
+//nvcc -arch sm_20 checkReader2.cu
 
 __constant__ float testDigit[DataLen*15];
 
@@ -302,7 +302,10 @@ void recognize2(int* ans, int count) {
 	int distantSize=sizeof(float)*TrainDataNum*15;
 	dim3 dimBlock(DataWidth, DataWidth, 1);
 	dim3 dimGrid(TrainDataNum, 1, 1);
+	
+	printf("count: %d\n", count);
 	knn2<<<dimGrid, dimBlock>>>(trainDataKernel, distantKernel, count);
+	
 	cudaDeviceSynchronize();
 	cuCheck(__LINE__);
 	cudaMemcpy(distantHost, distantKernel, distantSize, cudaMemcpyDeviceToHost);
@@ -459,7 +462,7 @@ __global__ void stripEliminationDevice(int* checkMonoDevice, int* outDevice, int
 	if(tx==0) {
 		outDevice[ty]=partialSum[tx];
 	}
-	if(partialSum[0]>300) {
+	if(partialSum[0]>500) {
 		if(ty*(xSize)+start+tx<xSize*ySize) {
 			checkMonoDevice[ty*(xSize)+start+tx]=0;
 		}
@@ -666,7 +669,8 @@ void getAns(int* ans, int count) {
 }
 
 
-int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int grabHeight, int ySize=YSIZE, int xSize=XSIZE) {
+int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int grabHeight, int num, int ySize=YSIZE, int xSize=XSIZE) {
+	//outputImage(checkMonoDevice, ySize, xSize, "area.pgm");
 	int count=0;
 	int checkMonoSize=sizeof(int)*ySize*xSize;
 	int* checkMonoHost=(int*)malloc(checkMonoSize);
@@ -698,7 +702,7 @@ int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int
 	int testDigitSize=sizeof(float)*DataLen;
 	int left=0;
 	int right=0;
-	while(left<grabWidth) {
+	while(left<grabWidth&&count<num) {
 		if(horizonHost[left]==0) {
 			++left;
 		}else {
@@ -735,13 +739,13 @@ int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int
 				}
 				//printf("\n");
 			}
-
 			//getOneDigit(ans, count, midX-16, midY-16, checkMonoHost, ySize, xSize);
 			++count;
 			left=right;
 		}
 
 	}
+	
 	cudaMemcpyToSymbol(testDigit, digitHost, testDigitSize*15);
 	cuCheck(__LINE__);
 	getAns(ans, count);
@@ -759,7 +763,8 @@ void checkReaderHost(int* checkMonoDevice, int ySize=YSIZE, int xSize=XSIZE) {
 	//grab the area left, but later I found that don't really need to.
 	int* ans;
 
-	ans=readAreaHost(checkMonoDevice, RoutingX, RoutingY, RoutingWidth, RoutingHeight, ySize, xSize);
+	ans=readAreaHost(checkMonoDevice, RoutingX, RoutingY, RoutingWidth, RoutingHeight, 15, ySize, xSize);
+	
 	char routing[9];
 	for(int i=0; i<9; ++i) {
 		routing[i]=char(ans[i]+48);
@@ -772,7 +777,7 @@ void checkReaderHost(int* checkMonoDevice, int ySize=YSIZE, int xSize=XSIZE) {
 	printf("Routing Number: %s\n", routing);
 	printf("Account Number: %s\n", account);
 
-	ans=readAreaHost(checkMonoDevice, MoneyX, MoneyY, MoneyWidth, MoneyHeight, ySize, xSize);
+	ans=readAreaHost(checkMonoDevice, MoneyX, MoneyY, MoneyWidth, MoneyHeight, 6, ySize, xSize);
 	float money=0;
 	int j=0;
 	while(ans[j]!=-1) {
@@ -784,7 +789,7 @@ void checkReaderHost(int* checkMonoDevice, int ySize=YSIZE, int xSize=XSIZE) {
 	printf("Amount: %.2f\n", money);
 
 	char num[3];
-	ans=readAreaHost(checkMonoDevice, NumX, NumY, NumWidth, NumHeight, ySize, xSize);
+	ans=readAreaHost(checkMonoDevice, NumX, NumY, NumWidth, NumHeight, 3, ySize, xSize);
 	for(int i=0; i<3; ++i) {
 		num[i]=char(ans[i]+48);
 	}
@@ -816,13 +821,13 @@ void readSingleCheck(int* in, int dev, char* fileName) {
 	}
 
 	//verify check
-	int valid=verificationHost(checkColoredDevice);
-	if(!valid) {
-		printf("Invalid check\n");
-		return;
-	}else {
-		printf("Valid Check from Chase Bank\n");
-	}
+	//int valid=verificationHost(checkColoredDevice);
+	// if(!valid) {
+	// 	printf("Invalid check\n");
+	// 	return;
+	// }else {
+	// 	printf("Valid Check from Chase Bank\n");
+	// }
 
 	//convert to mono
 	int* checkMonoDevice=NULL;
@@ -1123,7 +1128,8 @@ int* preprocess(char* fileName){
 
 int main() {
 	initKNN();
-	readSingleCheck(preprocess("check12.ppm"), 1, "check4.ppm");
+	readSingleCheck(preprocess("check15.ppm"), 1, "check4.ppm");
+	// readSingleCheck(preprocess("check14.ppm"), 1, "check4.ppm");
 	// readSingleCheck(preprocess("check8.ppm"), 1, "check4.ppm");
 	// readSingleCheck(preprocess("check9.ppm"), 1, "check4.ppm");
 	// readSingleCheck(preprocess("check10.ppm"), 1, "check4.ppm");
