@@ -303,7 +303,7 @@ void recognize2(int* ans, int count) {
 	dim3 dimBlock(DataWidth, DataWidth, 1);
 	dim3 dimGrid(TrainDataNum, 1, 1);
 	
-	printf("count: %d\n", count);
+	//printf("count: %d\n", count);
 	knn2<<<dimGrid, dimBlock>>>(trainDataKernel, distantKernel, count);
 	
 	cudaDeviceSynchronize();
@@ -314,9 +314,13 @@ void recognize2(int* ans, int count) {
 		float* curDistantHost=distantHost+j*TrainDataNum;
 		mergeSort(curDistantHost, TrainDataNum);
 		int num[10]={};
+		if(curDistantHost[0]>180) {
+			ans[j]=-1;
+			continue;
+		}
 		for(int i=0; i<12; i++) {
 			num[digits[int(10000*(curDistantHost[i]-int(curDistantHost[i])))]]+=1;
-			//printf("%f, %d\n", digits[i], distantHost[i]);
+			//printf("%f, %d\n", digits[i], curDistantHost[i]);
 		}
 		int curBest=-1;
 		int curInt=-1;
@@ -564,7 +568,8 @@ int verificationHost(int* checkColoredDevice, int ySize=YSIZE, int xSize=XSIZE) 
 	free(histHost);
 	cudaFree(histDevice);
 
-	if(histHost[196]+histHost[197]+histHost[195]>110000) {
+	if(histHost[196]+histHost[197]+histHost[195]>25000) {
+		//printf("%d\n", histHost[196]+histHost[197]+histHost[195]);
 		return 1;
 	}else {
 		return 0;
@@ -739,6 +744,7 @@ int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int
 				}
 				//printf("\n");
 			}
+			//printf("\n");
 			//getOneDigit(ans, count, midX-16, midY-16, checkMonoHost, ySize, xSize);
 			++count;
 			left=right;
@@ -821,13 +827,13 @@ void readSingleCheck(int* in, int dev, char* fileName) {
 	}
 
 	//verify check
-	//int valid=verificationHost(checkColoredDevice);
-	// if(!valid) {
-	// 	printf("Invalid check\n");
-	// 	return;
-	// }else {
-	// 	printf("Valid Check from Chase Bank\n");
-	// }
+	int valid=verificationHost(checkColoredDevice);
+	if(!valid) {
+		printf("Invalid check\n");
+		return;
+	}else {
+		printf("Valid Check from Chase Bank\n");
+	}
 
 	//convert to mono
 	int* checkMonoDevice=NULL;
