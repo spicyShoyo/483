@@ -1134,7 +1134,7 @@ int* preprocess(char* fileName){
 
 int main() {
 	initKNN();
-	readSingleCheck(preprocess("check15.ppm"), 1, "check4.ppm");
+	readSingleCheck(preprocess("check16.ppm"), 1, "check4.ppm");
 	// readSingleCheck(preprocess("check14.ppm"), 1, "check4.ppm");
 	// readSingleCheck(preprocess("check8.ppm"), 1, "check4.ppm");
 	// readSingleCheck(preprocess("check9.ppm"), 1, "check4.ppm");
