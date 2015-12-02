@@ -27,6 +27,7 @@
 #define NumY 53
 #define NumHeight 64
 #define Boundary 39
+#define BLACK_THRESHOLD 80
 
 void cuCheck(int line) {
     cudaError_t err = cudaGetLastError();
@@ -568,10 +569,11 @@ int verificationHost(int* checkColoredDevice, int ySize=YSIZE, int xSize=XSIZE) 
 	free(histHost);
 	cudaFree(histDevice);
 
-	if(histHost[196]+histHost[197]+histHost[195]>25000) {
+	if(histHost[196]+histHost[197]+histHost[195]>15000) {
 		//printf("%d\n", histHost[196]+histHost[197]+histHost[195]);
 		return 1;
 	}else {
+		printf("%d\n", histHost[196]+histHost[197]+histHost[195]);
 		return 0;
 	}
 }
@@ -856,7 +858,7 @@ bool isBlack_pixel(int x, int y, int *image_container, int width){
 	int red=image_container[index];
 	int green=image_container[index+1];
 	int blue=image_container[index+2];
-	return (red<100 && green<100 && blue<100);
+	return (red<BLACK_THRESHOLD && green<BLACK_THRESHOLD && blue<BLACK_THRESHOLD);
 }
 
 bool isBlack(int* container, int x, int y, int ySize, int xSize) {
@@ -1114,6 +1116,7 @@ int* preprocess(char* fileName){
 
 	dim3 dimBlock2(ceil(XSIZE/32.0), ceil(YSIZE/32.0), 1);
 	dim3 dimGrid2(32, 32, 1);
+	//ppmWritter("output0.pgm", device_raw_output, check_height, check_width);
 	resize<<<dimGrid2, dimBlock2>>>(device_raw_output, device_resized_output, check_height, check_width, YSIZE, XSIZE);
 	cuCheck(__LINE__);
 	cudaDeviceSynchronize();
