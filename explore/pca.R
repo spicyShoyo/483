@@ -1,0 +1,12 @@
+digitdata<-read.csv("data.csv", sep=" ", header=FALSE)
+library("lattice")
+covdigit=cov(data.matrix(digitdata))
+eigendigit=eigen(covdigit)
+plot(eigendigit$values, ylab="eigenvalue", main="Eigenvalues of Covmat")
+write.table(t(eigendigit$vectors[, c(1:64)]), file="eigenvectors.csv", row.names=FALSE, col.names=FALSE, eol="\n")
+
+eigenvectors<-read.csv("eigenvectors.csv", sep=" ", header=FALSE)
+output=matrix(nrow=1934, ncol=64)
+output=data.matrix(digitdata)%*%t(data.matrix(eigenvectors))
+write.table(output, file="trainingData.csv", row.names=FALSE, col.names=FALSE, eol="\n")
+write.table(eigendigit$vectors[, c(1:64)], file="eigenvectors.csv", row.names=FALSE, col.names=FALSE, eol="\n")
