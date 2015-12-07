@@ -29,9 +29,6 @@
 #define RED_THRESHOLD 176
 #define GREEN_THRESHOLD 176
 #define BLUE_THRESHOLD 127
-#define TrainDigits "trainData/foo.csv"
-#define TrainLabels "trainData/bar.csv"
-
 
 void cuCheck(int line) {
     cudaError_t err = cudaGetLastError();
@@ -174,10 +171,10 @@ __global__ void knn(float* trainDataKernel, float* distantKernel, int count) {
 }
 
 
-// input: the pointer to hold the training datas
-// return: return by pointer of the training datas
+// input: the pointer to hold the training data
+// return: return by pointer of the training data
 void initTrainDataHost(float* container) {
-	FILE* ptr=fopen(TrainDigits, "r");
+	FILE* ptr=fopen("foo.csv", "r");
 	char* buffer=(char*)malloc(sizeof(char));
 	for(int j=0; j<TrainDataNum; ++j) { 
 		for(int i=0; i<DataLen; ++i) {
@@ -196,7 +193,7 @@ void initTrainDataHost(float* container) {
 //this is because the training data only holds the data
 //it self, so here is what the data is.
 void initDigits(int* container) {
-	FILE* ptr=fopen(TrainLabels, "r");
+	FILE* ptr=fopen("bar.csv", "r");
 	char* buffer=(char*)malloc(sizeof(char));
 	for(int i=0; i<TrainDataNum; ++i) {
 		fscanf(ptr, "%c", buffer);
@@ -240,32 +237,25 @@ void freeKNN() {
 void merge(float* distantHost, int n, int m) {
 	int i, j, k;
 	float* x=(float*)malloc(n*sizeof(float));
-	// int* y=(int*)malloc(n*sizeof(int));
 	for(i=0, j=m, k=0; k<n; k++) {
 		if(j==n) {
 			x[k]=distantHost[i];
-			// y[k]=digits[i];
 			i+=1;
 		}else if(i==m) {
 			x[k]=distantHost[j];
-			// y[k]=digits[j];
 			j+=1;
 		}else if(int(distantHost[j])<int(distantHost[i])) {
 			x[k]=distantHost[j];
-			// y[k]=digits[j];
 			j+=1;
 		}else {
 			x[k]=distantHost[i];
-			// y[k]=digits[i];
 			i+=1;
 		}
 	}
 	for(int i=0; i<n; i++) {
 		distantHost[i]=x[i];
-		// digits[i]=y[i];
 	}
 	free(x);
-	// free(y);
 }
 
 
@@ -581,8 +571,6 @@ void toMonoHost(int** checkMonoDevice, int* checkColoredDevice, int ySize=YSIZE,
 	toMonoDevice<<<dimGrid, dimBlock>>>(*checkMonoDevice, checkColoredDevice, ySize, xSize);
 	cudaDeviceSynchronize();
 	cuCheck(__LINE__);
-
-	// outputImage(*checkMonoDevice, ySize, xSize, "checkMono.pgm");
 
 	return;
 }
@@ -905,7 +893,7 @@ void bfs(int *image_container, int *upperleft, int *upperright, int *lowerleft, 
 	free(coordinates_y);
 	free(visited);
 
-	if (!width_greater_than_height(upperleft, upperright, lowerleft, lowerright)){ //to be tested
+	if (!width_greater_than_height(upperleft, upperright, lowerleft, lowerright)){
 		int x=upperleft[0];
 		int y=upperleft[1];
 		upperleft[0]=upperright[0];
@@ -1053,9 +1041,7 @@ int* preprocess(char* fileName){
 
 int main() {
 	initKNN();
-
-	readSingleCheck(preprocess("testCases/check2.ppm"));
-
+	readSingleCheck(preprocess("check15.ppm"));
 	freeKNN();
 	return 0;
 }
