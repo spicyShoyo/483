@@ -1054,7 +1054,7 @@ int* preprocess(char* fileName){
 int main() {
 	initKNN();
 
-	readSingleCheck(preprocess("testCases/check16.ppm"));
+	readSingleCheck(preprocess("testCases/check2.ppm"));
 
 	freeKNN();
 	return 0;
