@@ -1,3 +1,3 @@
 # 483 Final Project
-Compile: nvcc -arch sm_20 checkReader.cu
+Compile: make all
 Run: ./a.out
