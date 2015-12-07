@@ -29,6 +29,9 @@
 #define RED_THRESHOLD 176
 #define GREEN_THRESHOLD 176
 #define BLUE_THRESHOLD 127
+#define TrainDigits "trainData/foo.csv"
+#define TrainLabels "trainData/bar.csv"
+
 
 void cuCheck(int line) {
     cudaError_t err = cudaGetLastError();
@@ -174,7 +177,7 @@ __global__ void knn(float* trainDataKernel, float* distantKernel, int count) {
 // input: the pointer to hold the training datas
 // return: return by pointer of the training datas
 void initTrainDataHost(float* container) {
-	FILE* ptr=fopen("foo.csv", "r");
+	FILE* ptr=fopen(TrainDigits, "r");
 	char* buffer=(char*)malloc(sizeof(char));
 	for(int j=0; j<TrainDataNum; ++j) { 
 		for(int i=0; i<DataLen; ++i) {
@@ -193,7 +196,7 @@ void initTrainDataHost(float* container) {
 //this is because the training data only holds the data
 //it self, so here is what the data is.
 void initDigits(int* container) {
-	FILE* ptr=fopen("bar.csv", "r");
+	FILE* ptr=fopen(TrainLabels, "r");
 	char* buffer=(char*)malloc(sizeof(char));
 	for(int i=0; i<TrainDataNum; ++i) {
 		fscanf(ptr, "%c", buffer);
@@ -1050,7 +1053,9 @@ int* preprocess(char* fileName){
 
 int main() {
 	initKNN();
-	readSingleCheck(preprocess("check15.ppm"));
+
+	readSingleCheck(preprocess("testCases/check16.ppm"));
+
 	freeKNN();
 	return 0;
 }
