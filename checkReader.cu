@@ -11,15 +11,12 @@
 #define KernelRadius 2
 #define TileWidth 8
 #define BlockWidth TileWidth+KernelWidth-1
-#define RoutingX 60
+#define RoutingX 79
 #define RoutingWidth 512
-//#define RoutingY 490
-#define RoutingY 495
-#define RoutingHeight 64
-//#define MoneyX 910
+#define RoutingY 500
+#define RoutingHeight 55
 #define MoneyX 922
 #define MoneyWidth 200
-// #define MoneyY 200
 #define MoneyY 218
 #define MoneyHeight 64
 #define NumX 1010
@@ -27,6 +24,14 @@
 #define NumY 53
 #define NumHeight 64
 #define Boundary 39
+#define BLACK_THRESHOLD 80
+#define VERIFY_BOUNDARY 15000
+#define RED_THRESHOLD 176
+#define GREEN_THRESHOLD 176
+#define BLUE_THRESHOLD 127
+#define TrainDigits "trainData/foo.csv"
+#define TrainLabels "trainData/bar.csv"
+
 
 void cuCheck(int line) {
     cudaError_t err = cudaGetLastError();
@@ -137,7 +142,7 @@ float* distantHost=NULL;
 float* distantKernel=NULL;
 
 
-__global__ void knn2(float* trainDataKernel, float* distantKernel, int count) {
+__global__ void knn(float* trainDataKernel, float* distantKernel, int count) {
 	__shared__ float digit[DataWidth][DataWidth];
 	__shared__ float train[DataWidth][DataWidth];
 	int tx=threadIdx.x;
@@ -169,33 +174,10 @@ __global__ void knn2(float* trainDataKernel, float* distantKernel, int count) {
 }
 
 
-__global__ void knn(float* trainDataKernel, float* distantKernel) {
-	__shared__ float digit[DataWidth][DataWidth];
-	int tx=threadIdx.x;
-	int ty=threadIdx.y;
-	int bx=blockIdx.x;
-	digit[tx][ty]=testDigit[ty*DataWidth+tx];
-	__syncthreads();
-	float cur=digit[tx][ty]-trainDataKernel[bx*DataLen+ty*DataWidth+tx];
-	cur=cur*cur;
-	digit[tx][ty]=cur;
-	for(int stride=16; stride>0; stride/=2) {
-		__syncthreads();
-		if(tx<stride&&ty<stride) {
-			digit[tx][ty]+=digit[tx+stride][ty]+digit[tx+stride][ty+stride]+digit[tx][ty+stride];
-		}
-	}
-	__syncthreads();
-	if(tx==0) {
-		distantKernel[bx]=int(digit[0][0])+float(bx)/10000;
-	}
-}
-
-
 // input: the pointer to hold the training datas
 // return: return by pointer of the training datas
 void initTrainDataHost(float* container) {
-	FILE* ptr=fopen("foo.csv", "r");
+	FILE* ptr=fopen(TrainDigits, "r");
 	char* buffer=(char*)malloc(sizeof(char));
 	for(int j=0; j<TrainDataNum; ++j) { 
 		for(int i=0; i<DataLen; ++i) {
@@ -214,7 +196,7 @@ void initTrainDataHost(float* container) {
 //this is because the training data only holds the data
 //it self, so here is what the data is.
 void initDigits(int* container) {
-	FILE* ptr=fopen("bar.csv", "r");
+	FILE* ptr=fopen(TrainLabels, "r");
 	char* buffer=(char*)malloc(sizeof(char));
 	for(int i=0; i<TrainDataNum; ++i) {
 		fscanf(ptr, "%c", buffer);
@@ -298,11 +280,13 @@ void mergeSort(float* distantHost, int n) {
 	merge(distantHost, n, m);
 }
 
-void recognize2(int* ans, int count) {
+void recognize(int* ans, int count) {
 	int distantSize=sizeof(float)*TrainDataNum*15;
 	dim3 dimBlock(DataWidth, DataWidth, 1);
 	dim3 dimGrid(TrainDataNum, 1, 1);
-	knn2<<<dimGrid, dimBlock>>>(trainDataKernel, distantKernel, count);
+	
+	knn<<<dimGrid, dimBlock>>>(trainDataKernel, distantKernel, count);
+	
 	cudaDeviceSynchronize();
 	cuCheck(__LINE__);
 	cudaMemcpy(distantHost, distantKernel, distantSize, cudaMemcpyDeviceToHost);
@@ -311,9 +295,12 @@ void recognize2(int* ans, int count) {
 		float* curDistantHost=distantHost+j*TrainDataNum;
 		mergeSort(curDistantHost, TrainDataNum);
 		int num[10]={};
+		if(curDistantHost[0]>180) {
+			ans[j]=-1;
+			continue;
+		}
 		for(int i=0; i<12; i++) {
 			num[digits[int(10000*(curDistantHost[i]-int(curDistantHost[i])))]]+=1;
-			//printf("%f, %d\n", digits[i], distantHost[i]);
 		}
 		int curBest=-1;
 		int curInt=-1;
@@ -321,53 +308,11 @@ void recognize2(int* ans, int count) {
 			if(num[i]!=0&&num[i]>curBest) {
 				curBest=num[i];
 				curInt=i;
-				//printf("%d, %d\n", curBest, curInt);
 			}
 		}
 		ans[j]=curInt;
 	}
 }
-//call to knn
-int recognize(float* testDigitHost) {
-	//printFirstDigit(testDigitHost);
-
-	//init test digit
-
-	//init test digit done
-
-	//init distant mat
-	int distantSize=sizeof(float)*TrainDataNum;
-	//init distant mat done
-
-	dim3 dimBlock(DataWidth, DataWidth, 1);
-	dim3 dimGrid(TrainDataNum, 1, 1);
-	knn<<<dimGrid, dimBlock>>>(trainDataKernel, distantKernel);
-	cudaDeviceSynchronize();
-	cuCheck(__LINE__);
-	cudaMemcpy(distantHost, distantKernel, distantSize, cudaMemcpyDeviceToHost);
-	cuCheck(__LINE__);
-
-	mergeSort(distantHost, TrainDataNum);
-
-	int num[10]={};
-	for(int i=0; i<12; i++) {
-		num[digits[int(10000*(distantHost[i]-int(distantHost[i])))]]+=1;
-		//printf("%f, %d\n", digits[i], distantHost[i]);
-	}
-
-	int curBest=-1;
-	int curInt=-1;
-	for(int i=0; i<10; i++) {
-		if(num[i]!=0&&num[i]>curBest) {
-			curBest=num[i];
-			curInt=i;
-			//printf("%d, %d\n", curBest, curInt);
-		}
-	}
-
-	return curInt;
-}
-//knn code above}}}}}}}}}}}}}}}}}}}}}}}
 
 
 //noise reduction code below{{{{{{{{{{{{{{{{{{{{{{{{
@@ -429,8 +374,6 @@ void noiseReduct(int* digit, int ySize, int xSize) {
 	cuCheck(__LINE__);
 	cudaMemcpy(digit, digitOutput, digitSize, cudaMemcpyDeviceToHost);
 	cuCheck(__LINE__);
-	//printleftDigitInt(digit, ySize, xSize, __LINE__);
-	// cudaFree(digitInput);
 	cudaFree(digitOutput);
 }
 //noise reduction code above}}}}}}}}}}}}}}}}}}}}}}}
@@ -459,7 +402,7 @@ __global__ void stripEliminationDevice(int* checkMonoDevice, int* outDevice, int
 	if(tx==0) {
 		outDevice[ty]=partialSum[tx];
 	}
-	if(partialSum[0]>300) {
+	if(partialSum[0]>500) {
 		if(ty*(xSize)+start+tx<xSize*ySize) {
 			checkMonoDevice[ty*(xSize)+start+tx]=0;
 		}
@@ -484,13 +427,8 @@ void stripEliminationHost(int* checkMonoDevice, int ySize, int xSize) {
 	cuCheck(__LINE__);
 
 	cudaMemcpy(outHost, outDevice, outSize, cudaMemcpyDeviceToHost);
-	// for(int i=0; i<50; ++i) {
-	// 	printf("%d: %d\n", i, outHost[i]);
-	// }
 	free(outHost);
 	cudaFree(outDevice);
-
-	//outputImage(checkMonoDevice, ySize, xSize, "checkStrip.pgm");
 
 	return;
 }
@@ -514,58 +452,107 @@ void scaleHost(int** checkColoredDevice, int* image, int ySize, int xSize) {
 
 
 //verification cuda below{{{{{{{{{{{{{{{{{{{{{{{{
-__global__ void getHistDevice(int* histDevice, int* checkColoredDevice, int ySize, int xSize) {
-	__shared__ int histPrivate[HISTOGRAM_LENGTH];
-	if(threadIdx.x<HISTOGRAM_LENGTH) {
-		histPrivate[threadIdx.x]=0;
-	}
-	__syncthreads();
-	int i=threadIdx.x+blockIdx.x*blockDim.x;
-	int stride=blockDim.x*gridDim.x;
-	while(i<ySize*xSize) {
-		atomicAdd(&(histPrivate[checkColoredDevice[3*i+2]]), 1);
-		i+=stride;
-	}
-	__syncthreads();
-	if(threadIdx.x<HISTOGRAM_LENGTH) {
-		atomicAdd(&(histDevice[threadIdx.x]), histPrivate[threadIdx.x]);
-	}
-}
 
-
-void getHistHost(int* histDevice, int* checkColoredDevice, int ySize, int xSize) {
-	dim3 dimBlock(256, 1, 1);
-	dim3 dimGrid(ceil(ySize*xSize/(float)256), 1, 1);
-	getHistDevice<<<dimGrid, dimBlock>>>(histDevice, checkColoredDevice, ySize, xSize);
-	cudaDeviceSynchronize();
-	cuCheck(__LINE__);
+__global__ void verifyBlue(int* input_arr, int* isBlue) {
+	int col=blockIdx.x*blockDim.x+threadIdx.x;
+	int row=blockIdx.y*blockDim.y+threadIdx.y;
+	int input_index=row*XSIZE+col;
+	int output_index=row*2048+col;
+	if (row<YSIZE && col<XSIZE && input_arr[3*input_index]<RED_THRESHOLD && input_arr[3*input_index+1]<GREEN_THRESHOLD && input_arr[3*input_index+2]>BLUE_THRESHOLD)
+		isBlue[output_index]=1;
+	else
+		isBlue[output_index]=0;
 	return;
 }
 
+__global__ void countBlue_perRow(int* isBlue, int* numBlue_perRow) {
+	__shared__ int partial[2048];
+	int BLOCK_SIZE=1024;
+	int by=blockIdx.y;
+	int tx=threadIdx.x;
+	partial[tx]=isBlue[by*2*BLOCK_SIZE+tx];
+	partial[BLOCK_SIZE+tx]=isBlue[by*2*BLOCK_SIZE+BLOCK_SIZE+tx];
+	__syncthreads();
+	for (int stride=BLOCK_SIZE; stride>0; stride/=2)
+	{
+		if (tx<stride)
+			partial[tx]+=partial[tx+stride];
+		__syncthreads();
+	}
+	if (tx==by)
+		numBlue_perRow[tx]=partial[0];
+	return;
+}
+
+__global__ void countBlue_total(int* numBlue_perRow, int* total) {
+	__shared__ int partial[1024];
+	int BLOCK_SIZE=512;
+	int bx=blockIdx.x;
+	int tx=threadIdx.x;
+	partial[tx]=numBlue_perRow[bx*2*BLOCK_SIZE+tx];
+	partial[BLOCK_SIZE+tx]=numBlue_perRow[bx*2*BLOCK_SIZE+BLOCK_SIZE+tx];
+	__syncthreads();
+	for (int stride=BLOCK_SIZE; stride>0; stride/=2)
+	{
+		if (tx<stride)
+			partial[tx]+=partial[tx+stride];
+		__syncthreads();
+	}
+	if (tx==bx)
+		total[tx]=partial[0];
+	return;
+}
 
 int verificationHost(int* checkColoredDevice, int ySize=YSIZE, int xSize=XSIZE) {
-	int histSize=HISTOGRAM_LENGTH*sizeof(int);
-	int* histHost;
-	int* histDevice;
-	histHost=(int*)malloc(histSize);
-	cudaMalloc((void **) &histDevice, histSize);
-	for(int i=0; i<HISTOGRAM_LENGTH; ++i) {
-		histHost[i]=0;
-	}
-	cudaMemcpy(histDevice, histHost, histSize, cudaMemcpyHostToDevice);
-	cuCheck(__LINE__);
-	getHistHost(histDevice, checkColoredDevice, ySize, xSize);
-	cudaMemcpy(histHost, histDevice, histSize, cudaMemcpyDeviceToHost);
+	int* device_check;
+	int* isBlue;
+	int* numBlue_perRow;
+	int* host_total;
+	int* device_total;
+	int size=ySize*xSize;
+
+	cudaMalloc((void**)&device_check, 3*size*sizeof(int));
+	cudaMalloc((void**)&isBlue, 2048*1024*sizeof(int));
+
+	cudaMemcpy(device_check, checkColoredDevice, 3*size*sizeof(int), cudaMemcpyHostToDevice);
 	cuCheck(__LINE__);
 
-	free(histHost);
-	cudaFree(histDevice);
+	dim3 DimGrid1(2, 1024, 1);
+	dim3 DimBlock1(1024, 1, 1);
+	verifyBlue<<<DimGrid1, DimBlock1>>>(device_check, isBlue);
+	cudaFree(device_check);
+	cuCheck(__LINE__);
 
-	if(histHost[196]+histHost[197]+histHost[195]>110000) {
+	cudaMalloc((void**)&numBlue_perRow, 1024*sizeof(int));
+	host_total=(int*)malloc(sizeof(int));
+	cudaMalloc((void**)&device_total, sizeof(int));
+	cuCheck(__LINE__);
+
+	dim3 DimGrid2(1, 1024, 1);
+	dim3 DimBlock2(1024, 1, 1);
+	countBlue_perRow<<<DimGrid2, DimBlock2>>>(isBlue, numBlue_perRow);
+	cudaFree(isBlue);
+	cuCheck(__LINE__);
+
+	dim3 DimGrid3(1, 1, 1);
+	dim3 DimBlock3(512, 1, 1);
+	countBlue_total<<<DimGrid3, DimBlock3>>>(numBlue_perRow, device_total);
+	cudaFree(numBlue_perRow);
+	cuCheck(__LINE__);
+
+	cudaMemcpy(host_total, device_total, sizeof(int), cudaMemcpyDeviceToHost);
+	cuCheck(__LINE__);
+
+	int total=*host_total;
+
+	free(host_total);
+	cudaFree(device_total);
+
+	printf("number of blue pixels are %d\n", total);
+
+	if (total>size/8 && total<size/2)
 		return 1;
-	}else {
-		return 0;
-	}
+	return 0;
 }
 //verification code above}}}}}}}}}}}}}}}}}}}}}}}
 
@@ -602,36 +589,6 @@ void toMonoHost(int** checkMonoDevice, int* checkColoredDevice, int ySize=YSIZE,
 //convert to mono code above}}}}}}}}}}}}}}}}}}}}}}}
 
 
-// //grab area code below{{{{{{{{{{{{{{{{{{{{{{{{
-// __global__ void grabAreaDevice(int* grabDevice, int *checkMonoDevice, int ySize, int xSize, int grabX, int grabY, int grabWidth, int grabHeight) {
-// 	int outX=blockIdx.x*blockDim.x+threadIdx.x;
-// 	int outY=blockIdx.y*blockDim.y+threadIdx.y;
-// 	int inX=outX+grabX;
-// 	int inY=outY+grabY;
-// 	grabDevice[outY*grabWidth+outX]=checkMonoDevice[inY*xSize+inX];
-// }
-
-
-// int* grabAreaHost(int* checkMonoDevice, int ySize, int xSize, int grabX, int grabY, int grabWidth, int grabHeight, char* fileName="grab.pgm") {
-// 	int grabSize=grabWidth*grabHeight*sizeof(int);
-// 	int* grabDevice;
-// 	cudaMalloc((void **) &grabDevice, grabSize);
-// 	cuCheck(__LINE__);
-
-// 	dim3 dimBlock(32, 32, 1);
-// 	dim3 dimGrid(ceil(grabWidth/float(32)), ceil(grabHeight/float(32)), 1);
-// 	grabAreaDevice<<<dimGrid, dimBlock>>>(grabDevice, checkMonoDevice, ySize, xSize, grabX, grabY, grabWidth, grabHeight);
-// 	cudaDeviceSynchronize();
-// 	cuCheck(__LINE__);
-// 	cuCheck(__LINE__);
-
-// 	outputImage(grabDevice, grabHeight, grabWidth, fileName);
-
-// 	return grabDevice;
-// }
-// //grab area code above}}}}}}}}}}}}}}}}}}}}}}}
-
-
 //grab and read digit code below{{{{{{{{{{{{{{{{{{{{{{{{
 __global__ void getHorizonDevice(int* horizonDevice, int* checkMonoDevice, int grabX, int grabY, int grabWidth, int grabHeight, int ySize=YSIZE, int xSize=XSIZE) {
 	int bx=blockIdx.x;
@@ -645,28 +602,14 @@ __global__ void getHorizonDevice(int* horizonDevice, int* checkMonoDevice, int g
 }
 
 
-void getOneDigit(int* ans, int count, int startX, int startY, int* checkMonoHost, int ySize=YSIZE, int xSize=XSIZE) {
-	float* digitHost=(float*)malloc(sizeof(float)*DataLen);
-	for(int i=startY; i<startY+DataWidth; ++i) {
-		for(int j=startX; j<startX+DataWidth; ++j) {
-			int x=j-startX;
-			int y=i-startY;
-			digitHost[y*DataWidth+x]=(float)checkMonoHost[i*xSize+j];
-			//printf("%d", (int)checkMonoHost[i*xSize+j]);
-		}
-		//printf("\n");
-	}
-	ans[count]=recognize(digitHost);
-}
-
-
 void getAns(int* ans, int count) {
-	recognize2(ans, count);
+	recognize(ans, count);
 	return;
 }
 
 
-int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int grabHeight, int ySize=YSIZE, int xSize=XSIZE) {
+int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int grabHeight, int num, int ySize=YSIZE, int xSize=XSIZE) {
+	//outputImage(checkMonoDevice, ySize, xSize, "area.pgm");
 	int count=0;
 	int checkMonoSize=sizeof(int)*ySize*xSize;
 	int* checkMonoHost=(int*)malloc(checkMonoSize);
@@ -698,7 +641,7 @@ int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int
 	int testDigitSize=sizeof(float)*DataLen;
 	int left=0;
 	int right=0;
-	while(left<grabWidth) {
+	while(left<grabWidth&&count<num) {
 		if(horizonHost[left]==0) {
 			++left;
 		}else {
@@ -731,17 +674,14 @@ int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int
 					int x=j-startX;
 					int y=i-startY;
 					digitHost[count*DataLen+y*DataWidth+x]=(float)checkMonoHost[i*xSize+j];
-					//printf("%d", (int)checkMonoHost[i*xSize+j]);
 				}
-				//printf("\n");
 			}
-
-			//getOneDigit(ans, count, midX-16, midY-16, checkMonoHost, ySize, xSize);
 			++count;
 			left=right;
 		}
 
 	}
+	
 	cudaMemcpyToSymbol(testDigit, digitHost, testDigitSize*15);
 	cuCheck(__LINE__);
 	getAns(ans, count);
@@ -759,7 +699,8 @@ void checkReaderHost(int* checkMonoDevice, int ySize=YSIZE, int xSize=XSIZE) {
 	//grab the area left, but later I found that don't really need to.
 	int* ans;
 
-	ans=readAreaHost(checkMonoDevice, RoutingX, RoutingY, RoutingWidth, RoutingHeight, ySize, xSize);
+	ans=readAreaHost(checkMonoDevice, RoutingX, RoutingY, RoutingWidth, RoutingHeight, 15, ySize, xSize);
+	
 	char routing[9];
 	for(int i=0; i<9; ++i) {
 		routing[i]=char(ans[i]+48);
@@ -772,7 +713,7 @@ void checkReaderHost(int* checkMonoDevice, int ySize=YSIZE, int xSize=XSIZE) {
 	printf("Routing Number: %s\n", routing);
 	printf("Account Number: %s\n", account);
 
-	ans=readAreaHost(checkMonoDevice, MoneyX, MoneyY, MoneyWidth, MoneyHeight, ySize, xSize);
+	ans=readAreaHost(checkMonoDevice, MoneyX, MoneyY, MoneyWidth, MoneyHeight, 6, ySize, xSize);
 	float money=0;
 	int j=0;
 	while(ans[j]!=-1) {
@@ -784,7 +725,7 @@ void checkReaderHost(int* checkMonoDevice, int ySize=YSIZE, int xSize=XSIZE) {
 	printf("Amount: %.2f\n", money);
 
 	char num[3];
-	ans=readAreaHost(checkMonoDevice, NumX, NumY, NumWidth, NumHeight, ySize, xSize);
+	ans=readAreaHost(checkMonoDevice, NumX, NumY, NumWidth, NumHeight, 3, ySize, xSize);
 	for(int i=0; i<3; ++i) {
 		num[i]=char(ans[i]+48);
 	}
@@ -796,7 +737,7 @@ void checkReaderHost(int* checkMonoDevice, int ySize=YSIZE, int xSize=XSIZE) {
 //read check code above}}}}}}}}}}}}}}}}}}}}}}}
 
 
-void readSingleCheck(int* in, int dev, char* fileName) {
+void readSingleCheck(int* in) {
 	//read in the image
 	int* imageHost=NULL;
 	int* ySize=(int*)malloc(sizeof(int));
@@ -804,25 +745,19 @@ void readSingleCheck(int* in, int dev, char* fileName) {
 
 	int* checkColoredDevice=NULL;
 	
-	if(dev) {
-		*xSize=1200;
-		*ySize=600;
-		imageHost=(int*)malloc(sizeof(int));
-		checkColoredDevice=in;
-	}else {
-		printf("Test readSingleCheck\n");
-		ppmReader(fileName, &imageHost, ySize, xSize);
-		scaleHost(&checkColoredDevice, imageHost, *ySize, *xSize);
-	}
+	*xSize=1200;
+	*ySize=600;
+	imageHost=(int*)malloc(sizeof(int));
+	checkColoredDevice=in;
 
 	//verify check
 	int valid=verificationHost(checkColoredDevice);
-	if(!valid) {
-		printf("Invalid check\n");
-		return;
-	}else {
-		printf("Valid Check from Chase Bank\n");
+	if(!valid){
+	 	printf("Invalid check\n");
+	 	return;
 	}
+	else
+	 	printf("Valid Check from Chase Bank\n");
 
 	//convert to mono
 	int* checkMonoDevice=NULL;
@@ -845,11 +780,10 @@ bool isBlack_pixel(int x, int y, int *image_container, int width){
 	int red=image_container[index];
 	int green=image_container[index+1];
 	int blue=image_container[index+2];
-	return (red<100 && green<100 && blue<100);
+	return (red<BLACK_THRESHOLD && green<BLACK_THRESHOLD && blue<BLACK_THRESHOLD);
 }
 
 bool isBlack(int* container, int x, int y, int ySize, int xSize) {
-	//printf("x_coord= %d, y_coord= %d ", x, y);
 	int sum=0;
 	for(int i=-1; i<2; i+=1) {
 		for(int j=-1; j<2; j+=1) {
@@ -860,7 +794,7 @@ bool isBlack(int* container, int x, int y, int ySize, int xSize) {
 					sum+=1;
 		}
 	}
-	if(sum>6) return true;
+	if(sum>4) return true;
 	return false;
 }
 
@@ -1073,12 +1007,9 @@ int* preprocess(char* fileName){
 
 	int center_x=(upperleft[0]+lowerright[0]+upperright[0]+lowerleft[0])/4;
 	int center_y=(upperleft[1]+lowerright[1]+upperright[1]+lowerleft[1])/4;
-	printf("center_x= %d\n", center_x);
-	printf("center_y= %d\n", center_y);
+
 	float cos_theta=getCos(upperleft[0], upperleft[1], upperright[0], upperright[1]);
 	float sin_theta=getSin(upperleft[0], upperleft[1], upperright[0], upperright[1]);
-	printf("cos= %f\n", cos_theta);
-	printf("sin= %f\n", sin_theta);
 
 	int* device_input;
 	int* device_raw_output;
@@ -1111,7 +1042,6 @@ int* preprocess(char* fileName){
 
 	cudaFree(device_input);
 	cudaFree(device_raw_output);
-	//cudaFree(device_resized_output);
 	cuCheck(__LINE__);
 
 	ppmWritter("output.pgm", output_resized_image, YSIZE, XSIZE);
@@ -1123,11 +1053,8 @@ int* preprocess(char* fileName){
 
 int main() {
 	initKNN();
-	readSingleCheck(preprocess("check13.ppm"), 1, "check4.ppm");
-	// readSingleCheck(preprocess("check8.ppm"), 1, "check4.ppm");
-	// readSingleCheck(preprocess("check9.ppm"), 1, "check4.ppm");
-	// readSingleCheck(preprocess("check10.ppm"), 1, "check4.ppm");
-	// readSingleCheck(preprocess("check11.ppm"), 1, "check4.ppm");
+
+	readSingleCheck(preprocess("testCases/check16.ppm"));
 
 	freeKNN();
 	return 0;

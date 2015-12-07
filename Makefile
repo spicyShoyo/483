@@ -1,7 +1,7 @@
 CXX = nvcc
 CXXFLAGS = -arch sm_20
 TESTFLAGS = -G -g
-OBJS_FILES = checkReaderv2.cu
+OBJS_FILES = checkReader.cu
 
 all:
 	$(CXX) $(CXXFLAGS) $(OBJS_FILES)
