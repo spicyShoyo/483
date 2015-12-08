@@ -137,18 +137,29 @@ void printFirstDigit(float* datas, int h=32, int w=32) {
 
 
 //knn code below{{{{{{{{{{{{{{{{{{{{{{{{
-int* digits=NULL;
-int* digitsDevice=NULL;
+
 float* trainDataHost=NULL;
 float* trainDataKernel=NULL;
 float* distantHost=NULL;
 float* distantKernel=NULL;
 
+int* digits=NULL;
+int* digitsDevice=NULL;
+float* EigenVectors;
 float* trainDataPCAHost=NULL;
 float* trainDataPCAKernel=NULL;
 float* distantPCAHost=NULL;
 float* distantPCAKernel=NULL;
 
+void freePCAKNN() {
+	free(digits);
+	cudaFree(digitsDevice);
+	cudaFree(EigenVectors);
+	free(trainDataPCAHost);
+	cudaFree(trainDataPCAKernel);
+	free(distantPCAHost);
+	cudaFree(distantPCAKernel);
+}
 //init the answer to the training data
 //return by pointer
 //this is because the training data only holds the data
@@ -165,8 +176,11 @@ void initDigits(int* container) {
 	return;
 }
 
-void initEigenvectors(float* container) {
-	FILE* ptr=fopen("eigenvectors.csv", "r");
+void initEigenvectors() {
+	float* EigenVectorsHost=(float*)malloc(DataLen*Reduced_Data_Length*sizeof(float));
+	cudaMalloc((void **) &EigenVectors, DataLen*Reduced_Data_Length*sizeof(float));
+	float* container=EigenVectorsHost;
+	FILE* ptr=fopen("explore/eigenvectors.csv", "r");
 	char* buffer=(char*)malloc(sizeof(char));
 	for(int j=0; j<DataLen; ++j) {
 		for(int i=0; i<Reduced_Data_Length; ++i) {
@@ -175,26 +189,45 @@ void initEigenvectors(float* container) {
 		}
 	}
 	free(buffer);
+	cudaMemcpy(EigenVectors, EigenVectorsHost, DataLen*Reduced_Data_Length*sizeof(float), cudaMemcpyHostToDevice);
 	return;
 }
 
+
+void initTrainDataPCAHost(float* container) {
+	FILE* ptr=fopen("explore/trainingData.csv", "r");
+	char* buffer=(char*)malloc(sizeof(char));
+	for(int i=0; i<TrainDataNum; i++) { 
+		for(int j=0; j<Reduced_Data_Length; j++) {
+			fscanf(ptr, "%f", &container[i*Reduced_Data_Length+j]);
+			fscanf(ptr, "%c", buffer);
+		}
+	}
+	free(buffer);
+	return;
+}
 
 void initPCAKNN() {
 
 	digits=(int*)malloc(TrainDataNum*sizeof(int));
 	initDigits(digits);
-	cudaMalloc((void **) &digitDevice, digits, TrainDataNum*sizeof(int), cudaMemcpyHostToDevice);
+	cudaMalloc((void **) &digitsDevice, TrainDataNum*sizeof(int));
+	cudaMemcpy(digitsDevice, digits, TrainDataNum*sizeof(int), cudaMemcpyHostToDevice);
 	cuCheck(__LINE__);
 	int distantPCASize=sizeof(float)*TrainDataNum*15;
 	distantPCAHost=(float*)malloc(distantPCASize);
 	cudaMalloc((void**) &distantPCAKernel, distantPCASize);
 	cuCheck(__LINE__);
-	initEigenvectors(trainDataPCAHost);
-	cudaMalloc((void**) &trainDataPCAKernel, trainDataSize);
+
+	int trainDataPCASize=sizeof(float)*Reduced_Data_Length*TrainDataNum;
+	trainDataPCAHost=(float*)malloc(trainDataPCASize);
+	initTrainDataPCAHost(trainDataPCAHost);
+	cudaMalloc((void**) &trainDataPCAKernel, trainDataPCASize);
 	cuCheck(__LINE__);
-	cudaMemcpy(trainDataKernel, trainDataHost, trainDataSize, cudaMemcpyHostToDevice);
+	cudaMemcpy(trainDataPCAKernel, trainDataPCAHost, trainDataPCASize, cudaMemcpyHostToDevice);
 	cuCheck(__LINE__);
-	//init dist
+
+	initEigenvectors();
 }
 
 
@@ -218,43 +251,43 @@ __global__ void knnPCA(float* trainDataPCAKernel, float* distantPCAKernel, int c
 		}
 		__syncthreads();
 		if(tx==0) {
-			distantPCAKernel[Reduced_Data_Length*i+bx]=digit;
+			distantPCAKernel[Reduced_Data_Length*i+bx]=digit[0];
 		}
 		__syncthreads();
 	}
 }
 
 
-// __global__ void knn(float* trainDataKernel, float* distantKernel, int count) {
-// 	__shared__ float digit[DataWidth][DataWidth];
-// 	__shared__ float train[DataWidth][DataWidth];
-// 	int tx=threadIdx.x;
-// 	int ty=threadIdx.y;
-// 	int bx=blockIdx.x;
+__global__ void knn(float* trainDataKernel, float* distantKernel, int count) {
+	__shared__ float digit[DataWidth][DataWidth];
+	__shared__ float train[DataWidth][DataWidth];
+	int tx=threadIdx.x;
+	int ty=threadIdx.y;
+	int bx=blockIdx.x;
 
-// 	train[tx][ty]=trainDataKernel[bx*DataLen+ty*DataWidth+tx];
+	train[tx][ty]=trainDataKernel[bx*DataLen+ty*DataWidth+tx];
 
-// 	for(int i=0; i<count; ++i) {
-// 		digit[tx][ty]=testDigit[i*DataLen+ty*DataWidth+tx];
-// 		__syncthreads();
+	for(int i=0; i<count; ++i) {
+		digit[tx][ty]=testDigit[i*DataLen+ty*DataWidth+tx];
+		__syncthreads();
 
-// 		float cur=digit[tx][ty]-train[tx][ty];
-// 		cur=cur*cur;
-// 		digit[tx][ty]=cur;
-// 		for(int stride=16; stride>0; stride/=2) {
-// 			__syncthreads();
-// 			if(tx<stride&&ty<stride) {
-// 				digit[tx][ty]+=digit[tx+stride][ty]+digit[tx+stride][ty+stride]+digit[tx][ty+stride];
-// 			}
-// 		}
-// 		__syncthreads();
-// 		if(tx==0) {
-// 			distantKernel[TrainDataNum*i+bx]=int(digit[0][0])+float(bx)/10000;
-// 		}
+		float cur=digit[tx][ty]-train[tx][ty];
+		cur=cur*cur;
+		digit[tx][ty]=cur;
+		for(int stride=16; stride>0; stride/=2) {
+			__syncthreads();
+			if(tx<stride&&ty<stride) {
+				digit[tx][ty]+=digit[tx+stride][ty]+digit[tx+stride][ty+stride]+digit[tx][ty+stride];
+			}
+		}
+		__syncthreads();
+		if(tx==0) {
+			distantKernel[TrainDataNum*i+bx]=int(digit[0][0])+float(bx)/10000;
+		}
 
-// 		__syncthreads();
-// 	}
-// }
+		__syncthreads();
+	}
+}
 
 
 // input: the pointer to hold the training datas
@@ -349,11 +382,52 @@ void mergeSort(float* distantHost, int n) {
 	merge(distantHost, n, m);
 }
 
+void mergePCA(float* distantHost, int* digitsHost, int n, int m) {
+	int i, j, k;
+	float* x=(float*)malloc(n*sizeof(float));
+	int* y=(int*)malloc(n*sizeof(int));
+	for(i=0, j=m, k=0; k<n; k++) {
+		if(j==n) {
+			x[k]=distantHost[i];
+			y[k]=digits[i];
+			i+=1;
+		}else if(i==m) {
+			x[k]=distantHost[j];
+			y[k]=digits[j];
+			j+=1;
+		}else if(int(distantHost[j])<int(distantHost[i])) {
+			x[k]=distantHost[j];
+			y[k]=digits[j];
+			j+=1;
+		}else {
+			x[k]=distantHost[i];
+			y[k]=digits[i];
+			i+=1;
+		}
+	}
+	for(int i=0; i<n; i++) {
+		distantHost[i]=x[i];
+		digitsHost[i]=y[i];
+	}
+	free(x);
+	free(y);
+}
+void mergeSortPCA(float* distantHost, int* digitsHost, int n) {
+	if(n<2) {
+		return;
+	}
+	int m=n/2;
+	mergeSortPCA(distantHost, digitsHost, m);
+	mergeSortPCA(distantHost+m, digitsHost, n-m);
+	mergePCA(distantHost, digitsHost, n, m);
+}
+
 
 void recognizePCA(int* ans, int count) {
 	int distantPCASize=sizeof(float)*TrainDataNum*count;
 	dim3 dimBlock(Reduced_Data_Length, 1, 1);
 	dim3 dimGrid(TrainDataNum, 1, 1);
+	int* digitsHost=(int*)malloc(sizeof(int)*TrainDataNum);
 
 	knnPCA<<<dimGrid, dimBlock>>>(trainDataPCAKernel, distantPCAKernel, count);
 	cudaDeviceSynchronize();
@@ -361,8 +435,27 @@ void recognizePCA(int* ans, int count) {
 	cudaMemcpy(distantPCAHost, distantPCAKernel, distantPCASize, cudaMemcpyDeviceToHost);
 	cuCheck(__LINE__);
 	for(int j=0; j<count; ++j) {
+		cudaMemcpy(digitsHost, digitsDevice, sizeof(int)*TrainDataNum, cudaMemcpyDeviceToHost);
+		cuCheck(__LINE__);
 		float* curDistantHost=distantPCAKernel+j*TrainDataNum;
-		mergeSortPCA(curDistantHost, TrainDataNum);
+		mergeSortPCA(curDistantHost, digitsHost, TrainDataNum);
+		int num[10]={};
+		// if(curDistantHost[0]>180) {
+		// 	ans[j]=-1;
+		// 	continue;
+		// }
+		for(int i=0; i<5; i++) {
+			num[digitsHost[i]]+=1;
+		}
+		int curBest=-1;
+		int curInt=-1;
+		for(int i=0; i<10; i++) {
+			if(num[i]!=0&&num[i]>curBest) {
+				curBest=num[i];
+				curInt=i;
+			}
+		}
+		ans[j]=curInt;
 	}
 }
 
@@ -1196,10 +1289,10 @@ int* preprocess(char* fileName){
 
 
 int main() {
-	initKNN();
-
+	// initKNN();
+	initPCAKNN();
 	readSingleCheck(preprocess("testCases/check2.ppm"));
-
-	freeKNN();
+	freePCAKNN();
+	// freeKNN();
 	return 0;
 }
