@@ -4,7 +4,7 @@
 #define HISTOGRAM_LENGTH 256
 #define YSIZE 600
 #define XSIZE 1200
-#define TrainDataNum 7736
+#define TrainDataNum 1934
 #define DataLen 1024
 #define DataWidth 32
 #define KernelWidth 5
@@ -29,9 +29,11 @@
 #define RED_THRESHOLD 176
 #define GREEN_THRESHOLD 176
 #define BLUE_THRESHOLD 127
+#define Reduced_Data_Length 64
+#define KNN_BLOCK_SIZE 32
 #define TrainDigits "trainData/foo.csv"
 #define TrainLabels "trainData/bar.csv"
-
+#define PCA true
 
 void cuCheck(int line) {
     cudaError_t err = cudaGetLastError();
@@ -42,7 +44,7 @@ void cuCheck(int line) {
 //nvcc -arch sm_20 checkReader2.cu
 
 __constant__ float testDigit[DataLen*15];
-
+__constant__ float testPCADigit[Reduced_Data_Length*15];
 //image IO code below{{{{{{{{{{{{{{{{{{{{{{{{
 
 
@@ -190,6 +192,18 @@ void initTrainDataHost(float* container) {
 	return;
 }
 
+void initEigenvectors(float* container) {
+	FILE* ptr=fopen("eigenvectors.csv", "r");
+	char* buffer=(char*)malloc(sizeof(char));
+	for(int j=0; j<DataLen; ++j) {
+		for(int i=0; i<Reduced_Data_Length; ++i) {
+			fscanf(ptr, "%f", &container[j*Reduced_Data_Length+i]);
+			fscanf(ptr, "%c", buffer);
+		}
+	}
+	free(buffer);
+	return;
+}
 
 //init the answer to the training data
 //return by pointer
@@ -279,6 +293,16 @@ void mergeSort(float* distantHost, int n) {
 	mergeSort(distantHost+m, n-m);
 	merge(distantHost, n, m);
 }
+
+
+void recognizePCA(int* ans, int count) {
+	int distantSize=sizeof(float)*TrainDataNum*count;
+	dim3 dimBlock(Reduced_Data_Length, 1, 1);
+	dim3 dimGrid(TrainDataNum, 1, 1);
+
+	knnPCA<<<dimGrid, dimBlock>>>
+}
+
 
 void recognize(int* ans, int count) {
 	int distantSize=sizeof(float)*TrainDataNum*15;
@@ -608,6 +632,58 @@ void getAns(int* ans, int count) {
 }
 
 
+__global__ void matrixMultiply_device(float *A, float *B, float *C, int numARows, int numAColumns, int numBRows, int numBColumns, int numCRows, int numCColumns) {
+	__shared__ float sharedA[32][32];
+	__shared__ float sharedB[32][32];
+	int Row=blockIdx.y*32+threadIdx.y;
+	int Column=blockIdx.x*32+threadIdx.x;
+	float resultC=0.0f;
+	for (int i=0; i<ceil(numAColumns/32.0f); i++)
+	{
+		if (Row<numARows && i*32+threadIdx.x<numAColumns)
+			sharedA[threadIdx.y][threadIdx.x]=A[Row*numAColumns+i*32+threadIdx.x];
+		else
+			sharedA[threadIdx.y][threadIdx.x]=0.0f;
+		if (i*32+threadIdx.y<numBRows && Column<numBColumns)
+			sharedB[threadIdx.y][threadIdx.x]=B[(i*32+threadIdx.y)*numBColumns+Column];
+		else
+			sharedB[threadIdx.y][threadIdx.x]=0.0f;
+		__syncthreads();
+		for (int j=0; j<32; j++)
+		{
+			resultC+=sharedA[threadIdx.y][j]*sharedB[j][threadIdx.x];
+		}
+		__syncthreads();
+	}
+	if (Row<numCRows && Column<numCColumns)
+		C[Row*numCColumns+Column]=resultC;
+	return;
+}
+
+
+void setPCAConstant(float* digitHost, int count) {
+	int digitSize=sizeof(float)*count*DataLen);
+	int digitPCADSize=sizeof(float)*count*Reduced_Data_Length;
+	float* digitDevice;
+	float* digitPCADevice;
+	cudaMalloc((void **) &digitDevice, digitSize);
+	cudaMalloc((void **) &digitPCADevice, digitPCADSize);
+	cudaMemcpy(digitDevice, digitHost, digitSize, cudaMemcpyHostToDevice);
+	cuCheck(__LINE__);
+
+	dim3 DimGrid(ceil(Reduced_Data_Length/32.0f),ceil(count/32.0f),1);
+	dim3 DimBlock(32,32,1);
+	matrixMultiply_device<<<dimGrid, dimBlock>>>(digitDevice, EigenVectors, digitPCADevice, count, DataLen, DataLen, Reduced_Data_Length, count, Reduced_Data_Length);
+	cudaDeviceSynchronize();
+	cuCheck(__LINE__);
+
+	cudaMemcpyToSymbol(testPCADigit, digitPCADevice, Reduced_Data_Length*count);
+	cuCheck(__LINE__);
+	cudaFree(digitDevice);
+	cudaFree(digitPCADevice);
+}
+
+
 int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int grabHeight, int num, int ySize=YSIZE, int xSize=XSIZE) {
 	//outputImage(checkMonoDevice, ySize, xSize, "area.pgm");
 	int count=0;
@@ -681,10 +757,16 @@ int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int
 		}
 
 	}
-	
-	cudaMemcpyToSymbol(testDigit, digitHost, testDigitSize*15);
-	cuCheck(__LINE__);
-	getAns(ans, count);
+
+	if(PCA) {
+		setPCAConstant(digitHost, count);
+		getPCAAns(ans, count);
+		recognizePCA(ans, count);
+	}else {
+		cudaMemcpyToSymbol(testDigit, digitHost, testDigitSize*15);
+		cuCheck(__LINE__);
+		getAns(ans, count);
+	}
 	free(digitHost);
 	free(checkMonoHost);	
 	return ans;
