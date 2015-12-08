@@ -138,6 +138,7 @@ void printFirstDigit(float* datas, int h=32, int w=32) {
 
 //knn code below{{{{{{{{{{{{{{{{{{{{{{{{
 int* digits=NULL;
+int* digitsDevice=NULL;
 float* trainDataHost=NULL;
 float* trainDataKernel=NULL;
 float* distantHost=NULL;
@@ -164,48 +165,96 @@ void initDigits(int* container) {
 	return;
 }
 
+void initEigenvectors(float* container) {
+	FILE* ptr=fopen("eigenvectors.csv", "r");
+	char* buffer=(char*)malloc(sizeof(char));
+	for(int j=0; j<DataLen; ++j) {
+		for(int i=0; i<Reduced_Data_Length; ++i) {
+			fscanf(ptr, "%f", &container[j*Reduced_Data_Length+i]);
+			fscanf(ptr, "%c", buffer);
+		}
+	}
+	free(buffer);
+	return;
+}
+
+
 void initPCAKNN() {
+
 	digits=(int*)malloc(TrainDataNum*sizeof(int));
 	initDigits(digits);
+	cudaMalloc((void **) &digitDevice, digits, TrainDataNum*sizeof(int), cudaMemcpyHostToDevice);
+	cuCheck(__LINE__);
 	int distantPCASize=sizeof(float)*TrainDataNum*15;
 	distantPCAHost=(float*)malloc(distantPCASize);
 	cudaMalloc((void**) &distantPCAKernel, distantPCASize);
 	cuCheck(__LINE__);
-	//init pcatraindata
+	initEigenvectors(trainDataPCAHost);
+	cudaMalloc((void**) &trainDataPCAKernel, trainDataSize);
+	cuCheck(__LINE__);
+	cudaMemcpy(trainDataKernel, trainDataHost, trainDataSize, cudaMemcpyHostToDevice);
+	cuCheck(__LINE__);
 	//init dist
 }
 
 
-__global__ void knn(float* trainDataKernel, float* distantKernel, int count) {
-	__shared__ float digit[DataWidth][DataWidth];
-	__shared__ float train[DataWidth][DataWidth];
+__global__ void knnPCA(float* trainDataPCAKernel, float* distantPCAKernel, int count) {
+	__shared__ float digit[Reduced_Data_Length];
+	__shared__ float train[Reduced_Data_Length];
 	int tx=threadIdx.x;
-	int ty=threadIdx.y;
 	int bx=blockIdx.x;
-
-	train[tx][ty]=trainDataKernel[bx*DataLen+ty*DataWidth+tx];
-
+	train[tx]=trainDataPCAKernel[bx*Reduced_Data_Length+tx];
 	for(int i=0; i<count; ++i) {
-		digit[tx][ty]=testDigit[i*DataLen+ty*DataWidth+tx];
+		digit[tx]=testPCADigit[i*Reduced_Data_Length+tx];
 		__syncthreads();
-
-		float cur=digit[tx][ty]-train[tx][ty];
+		float cur=digit[tx]-train[tx];
 		cur=cur*cur;
-		digit[tx][ty]=cur;
-		for(int stride=16; stride>0; stride/=2) {
+		digit[tx]=cur;
+		for(int stride=32; stride>0; stride/=2) {
 			__syncthreads();
-			if(tx<stride&&ty<stride) {
-				digit[tx][ty]+=digit[tx+stride][ty]+digit[tx+stride][ty+stride]+digit[tx][ty+stride];
+			if(tx<stride) {
+				digit[tx]=digit[tx]+digit[tx+stride];
 			}
 		}
 		__syncthreads();
 		if(tx==0) {
-			distantKernel[TrainDataNum*i+bx]=int(digit[0][0])+float(bx)/10000;
+			distantPCAKernel[Reduced_Data_Length*i+bx]=digit;
 		}
-
 		__syncthreads();
 	}
 }
+
+
+// __global__ void knn(float* trainDataKernel, float* distantKernel, int count) {
+// 	__shared__ float digit[DataWidth][DataWidth];
+// 	__shared__ float train[DataWidth][DataWidth];
+// 	int tx=threadIdx.x;
+// 	int ty=threadIdx.y;
+// 	int bx=blockIdx.x;
+
+// 	train[tx][ty]=trainDataKernel[bx*DataLen+ty*DataWidth+tx];
+
+// 	for(int i=0; i<count; ++i) {
+// 		digit[tx][ty]=testDigit[i*DataLen+ty*DataWidth+tx];
+// 		__syncthreads();
+
+// 		float cur=digit[tx][ty]-train[tx][ty];
+// 		cur=cur*cur;
+// 		digit[tx][ty]=cur;
+// 		for(int stride=16; stride>0; stride/=2) {
+// 			__syncthreads();
+// 			if(tx<stride&&ty<stride) {
+// 				digit[tx][ty]+=digit[tx+stride][ty]+digit[tx+stride][ty+stride]+digit[tx][ty+stride];
+// 			}
+// 		}
+// 		__syncthreads();
+// 		if(tx==0) {
+// 			distantKernel[TrainDataNum*i+bx]=int(digit[0][0])+float(bx)/10000;
+// 		}
+
+// 		__syncthreads();
+// 	}
+// }
 
 
 // input: the pointer to hold the training datas
@@ -224,18 +273,6 @@ void initTrainDataHost(float* container) {
 	return;
 }
 
-void initEigenvectors(float* container) {
-	FILE* ptr=fopen("eigenvectors.csv", "r");
-	char* buffer=(char*)malloc(sizeof(char));
-	for(int j=0; j<DataLen; ++j) {
-		for(int i=0; i<Reduced_Data_Length; ++i) {
-			fscanf(ptr, "%f", &container[j*Reduced_Data_Length+i]);
-			fscanf(ptr, "%c", buffer);
-		}
-	}
-	free(buffer);
-	return;
-}
 
 
 
@@ -323,7 +360,10 @@ void recognizePCA(int* ans, int count) {
 	cuCheck(__LINE__);
 	cudaMemcpy(distantPCAHost, distantPCAKernel, distantPCASize, cudaMemcpyDeviceToHost);
 	cuCheck(__LINE__);
-
+	for(int j=0; j<count; ++j) {
+		float* curDistantHost=distantPCAKernel+j*TrainDataNum;
+		mergeSortPCA(curDistantHost, TrainDataNum);
+	}
 }
 
 
@@ -363,66 +403,66 @@ void recognize(int* ans, int count) {
 
 
 //noise reduction code below{{{{{{{{{{{{{{{{{{{{{{{{
-__constant__ float Mask[KernelWidth][KernelWidth];
+// __constant__ float Mask[KernelWidth][KernelWidth];
 
 //this one is convolution in 2d for reduce noise
-__global__ void conv2d(int* A, int* B, const int ySize, const int xSize) {
-	__shared__ float sharedM[BlockWidth][BlockWidth];
-	int tx=threadIdx.x;
-	int ty=threadIdx.y;
-	int colO=blockIdx.x*TileWidth+threadIdx.x;
-	int rowO=blockIdx.y*TileWidth+threadIdx.y;
-	int colI=colO-KernelRadius;
-	int rowI=rowO-KernelRadius;
+// __global__ void conv2d(int* A, int* B, const int ySize, const int xSize) {
+// 	__shared__ float sharedM[BlockWidth][BlockWidth];
+// 	int tx=threadIdx.x;
+// 	int ty=threadIdx.y;
+// 	int colO=blockIdx.x*TileWidth+threadIdx.x;
+// 	int rowO=blockIdx.y*TileWidth+threadIdx.y;
+// 	int colI=colO-KernelRadius;
+// 	int rowI=rowO-KernelRadius;
 
-	if((colI>=0)&&(colI<xSize)&&(rowI>=0)&&(rowI<ySize)) {
-		sharedM[tx][ty]=A[rowI*xSize+colI];
-	}else {
-		sharedM[tx][ty]=0;
-	}
-	__syncthreads();
+// 	if((colI>=0)&&(colI<xSize)&&(rowI>=0)&&(rowI<ySize)) {
+// 		sharedM[tx][ty]=A[rowI*xSize+colI];
+// 	}else {
+// 		sharedM[tx][ty]=0;
+// 	}
+// 	__syncthreads();
 
-	float output=0;
-	if(tx<TileWidth&&ty<TileWidth) {
-		for(int y=0; y<KernelWidth; ++y) {
-			for(int x=0; x<KernelWidth; ++x) {
-				output+=Mask[x][y]*sharedM[tx+x][ty+y];
-			}
-		}
-	}
-	output=output>15? 1:0;
-	if(rowO<ySize&&colO<xSize&&tx<TileWidth&&ty<TileWidth) {
-		B[rowO*xSize+colO]=output;
-	}
-}
+// 	float output=0;
+// 	if(tx<TileWidth&&ty<TileWidth) {
+// 		for(int y=0; y<KernelWidth; ++y) {
+// 			for(int x=0; x<KernelWidth; ++x) {
+// 				output+=Mask[x][y]*sharedM[tx+x][ty+y];
+// 			}
+// 		}
+// 	}
+// 	output=output>15? 1:0;
+// 	if(rowO<ySize&&colO<xSize&&tx<TileWidth&&ty<TileWidth) {
+// 		B[rowO*xSize+colO]=output;
+// 	}
+// }
 
 
 //reduce the noise of the canvas
-void noiseReduct(int* digit, int ySize, int xSize) {
-	int maskSize=sizeof(float)*KernelWidth*KernelWidth;
-	float* maskHost=(float*)malloc(maskSize);
-	for(int i=0; i<KernelWidth*KernelWidth; ++i) {
-		maskHost[i]=1;
-	}
-	cudaMemcpyToSymbol(Mask, maskHost, maskSize);
-	free(maskHost);
+// void noiseReduct(int* digit, int ySize, int xSize) {
+// 	int maskSize=sizeof(float)*KernelWidth*KernelWidth;
+// 	float* maskHost=(float*)malloc(maskSize);
+// 	for(int i=0; i<KernelWidth*KernelWidth; ++i) {
+// 		maskHost[i]=1;
+// 	}
+// 	cudaMemcpyToSymbol(Mask, maskHost, maskSize);
+// 	free(maskHost);
 
-	int digitSize=ySize*xSize*sizeof(int);
+// 	int digitSize=ySize*xSize*sizeof(int);
 	
-	int* digitInput;
-	int* digitOutput;
-	digitInput=digit;
-	cudaMalloc((void**) &digitOutput, digitSize);
-	cuCheck(__LINE__);
-	dim3 dimBlock(BlockWidth, BlockWidth, 1);
-	dim3 dimGrid(ceil(xSize/(float)TileWidth), ceil(ySize/(float)TileWidth), 1);
-	conv2d<<<dimGrid, dimBlock>>>(digitInput, digitOutput, ySize, xSize);
-	cudaDeviceSynchronize();
-	cuCheck(__LINE__);
-	cudaMemcpy(digit, digitOutput, digitSize, cudaMemcpyDeviceToHost);
-	cuCheck(__LINE__);
-	cudaFree(digitOutput);
-}
+// 	int* digitInput;
+// 	int* digitOutput;
+// 	digitInput=digit;
+// 	cudaMalloc((void**) &digitOutput, digitSize);
+// 	cuCheck(__LINE__);
+// 	dim3 dimBlock(BlockWidth, BlockWidth, 1);
+// 	dim3 dimGrid(ceil(xSize/(float)TileWidth), ceil(ySize/(float)TileWidth), 1);
+// 	conv2d<<<dimGrid, dimBlock>>>(digitInput, digitOutput, ySize, xSize);
+// 	cudaDeviceSynchronize();
+// 	cuCheck(__LINE__);
+// 	cudaMemcpy(digit, digitOutput, digitSize, cudaMemcpyDeviceToHost);
+// 	cuCheck(__LINE__);
+// 	cudaFree(digitOutput);
+// }
 //noise reduction code above}}}}}}}}}}}}}}}}}}}}}}}
 
 
@@ -685,7 +725,7 @@ __global__ void matrixMultiply_device(float *A, float *B, float *C, int numARows
 
 
 void setPCAConstant(float* digitHost, int count) {
-	int digitSize=sizeof(float)*count*DataLen);
+	int digitSize=sizeof(float)*count*DataLen;
 	int digitPCADSize=sizeof(float)*count*Reduced_Data_Length;
 	float* digitDevice;
 	float* digitPCADevice;
@@ -694,8 +734,8 @@ void setPCAConstant(float* digitHost, int count) {
 	cudaMemcpy(digitDevice, digitHost, digitSize, cudaMemcpyHostToDevice);
 	cuCheck(__LINE__);
 
-	dim3 DimGrid(ceil(Reduced_Data_Length/32.0f),ceil(count/32.0f),1);
-	dim3 DimBlock(32,32,1);
+	dim3 dimGrid(ceil(Reduced_Data_Length/32.0f),ceil(count/32.0f),1);
+	dim3 dimBlock(32,32,1);
 	matrixMultiply_device<<<dimGrid, dimBlock>>>(digitDevice, EigenVectors, digitPCADevice, count, DataLen, DataLen, Reduced_Data_Length, count, Reduced_Data_Length);
 	cudaDeviceSynchronize();
 	cuCheck(__LINE__);
@@ -783,7 +823,6 @@ int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int
 
 	if(PCA) {
 		setPCAConstant(digitHost, count);
-		getPCAAns(ans, count);
 		recognizePCA(ans, count);
 	}else {
 		cudaMemcpyToSymbol(testDigit, digitHost, testDigitSize*15);
