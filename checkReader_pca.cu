@@ -27,7 +27,7 @@ float* trainDataHost=NULL;
 float* trainDataKernel=NULL;
 float* distantHost=NULL;
 float* distantKernel=NULL;
-int* labelIndexKernel=NULL
+int* labelIndexKernel=NULL;
 
 
 __global__ void knn(float* trainDataKernel, float* distantKernel, int* labelIndexKernel, int count) {
@@ -59,7 +59,7 @@ __global__ void knn(float* trainDataKernel, float* distantKernel, int* labelInde
 		__syncthreads();
 		if(tx==0) {
 			distantKernel[TrainDataNum*i+bx]=digit[0];
-			labelIndexKernel=bx;
+			labelIndexKernel[TrainDataNum*i+bx]=bx;
 		}
 		__syncthreads();
 	}
