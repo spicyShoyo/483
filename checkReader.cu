@@ -143,6 +143,38 @@ float* trainDataKernel=NULL;
 float* distantHost=NULL;
 float* distantKernel=NULL;
 
+float* trainDataPCAHost=NULL;
+float* trainDataPCAKernel=NULL;
+float* distantPCAHost=NULL;
+float* distantPCAKernel=NULL;
+
+//init the answer to the training data
+//return by pointer
+//this is because the training data only holds the data
+//it self, so here is what the data is.
+void initDigits(int* container) {
+	FILE* ptr=fopen(TrainLabels, "r");
+	char* buffer=(char*)malloc(sizeof(char));
+	for(int i=0; i<TrainDataNum; ++i) {
+		fscanf(ptr, "%c", buffer);
+		container[i]=(int)(buffer[0])-48;
+		fscanf(ptr, "%c", buffer);
+	}
+	free(buffer);
+	return;
+}
+
+void initPCAKNN() {
+	digits=(int*)malloc(TrainDataNum*sizeof(int));
+	initDigits(digits);
+	int distantPCASize=sizeof(float)*TrainDataNum*15;
+	distantPCAHost=(float*)malloc(distantPCASize);
+	cudaMalloc((void**) &distantPCAKernel, distantPCASize);
+	cuCheck(__LINE__);
+	//init pcatraindata
+	//init dist
+}
+
 
 __global__ void knn(float* trainDataKernel, float* distantKernel, int count) {
 	__shared__ float digit[DataWidth][DataWidth];
@@ -205,21 +237,7 @@ void initEigenvectors(float* container) {
 	return;
 }
 
-//init the answer to the training data
-//return by pointer
-//this is because the training data only holds the data
-//it self, so here is what the data is.
-void initDigits(int* container) {
-	FILE* ptr=fopen(TrainLabels, "r");
-	char* buffer=(char*)malloc(sizeof(char));
-	for(int i=0; i<TrainDataNum; ++i) {
-		fscanf(ptr, "%c", buffer);
-		container[i]=(int)(buffer[0])-48;
-		fscanf(ptr, "%c", buffer);
-	}
-	free(buffer);
-	return;
-}
+
 
 
 void initKNN() {
@@ -296,11 +314,16 @@ void mergeSort(float* distantHost, int n) {
 
 
 void recognizePCA(int* ans, int count) {
-	int distantSize=sizeof(float)*TrainDataNum*count;
+	int distantPCASize=sizeof(float)*TrainDataNum*count;
 	dim3 dimBlock(Reduced_Data_Length, 1, 1);
 	dim3 dimGrid(TrainDataNum, 1, 1);
 
-	knnPCA<<<dimGrid, dimBlock>>>
+	knnPCA<<<dimGrid, dimBlock>>>(trainDataPCAKernel, distantPCAKernel, count);
+	cudaDeviceSynchronize();
+	cuCheck(__LINE__);
+	cudaMemcpy(distantPCAHost, distantPCAKernel, distantPCASize, cudaMemcpyDeviceToHost);
+	cuCheck(__LINE__);
+
 }
 
 
