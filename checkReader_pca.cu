@@ -21,6 +21,8 @@ void cuCheck(int line) {
 }
 //nvcc -arch sm_20 checkReader2.cu
 
+__constant__ float testDigit[DataLen*15];
+
 //knn code below{{{{{{{{{{{{{{{{{{{{{{{{
 int* digits=NULL;
 float* trainDataHost=NULL;
@@ -63,6 +65,53 @@ __global__ void knn(float* trainDataKernel, float* distantKernel, int* labelInde
 		}
 		__syncthreads();
 	}
+}
+
+
+// input: the pointer to hold the training data
+// return: return by pointer of the training data
+void initTrainDataHost(float* container) {
+	FILE* ptr=fopen("trainingData.csv", "r");
+	char* buffer=(char*)malloc(sizeof(char));
+	for(int i=0; i<TrainDataNum; i++) { 
+		for(int j=0; j<Reduced_Data_Length; j++) {
+			fscanf(ptr, "%f", &container[i*Reduced_Data_Length+j]);
+			fscanf(ptr, "%c", buffer);
+		}
+	}
+	free(buffer);
+	return;
+}
+
+
+void initEigenvectors(float* container) {
+	FILE* ptr=fopen("eigenvectors.csv", "r");
+	char* buffer=(char*)malloc(sizeof(char));
+	for(int j=0; j<DataLen; ++j) {
+		for(int i=0; i<Reduced_Data_Length; ++i) {
+			fscanf(ptr, "%f", &container[j*Reduced_Data_Length+i]);
+			fscanf(ptr, "%c", buffer);
+		}
+	}
+	free(buffer);
+	return;
+}
+
+
+//init the answer to the training data
+//return by pointer
+//this is because the training data only holds the data
+//it self, so here is what the data is.
+void initDigits(int* container) {
+	FILE* ptr=fopen("label.csv", "r");
+	char* buffer=(char*)malloc(sizeof(char));
+	for(int i=0; i<TrainDataNum; ++i) {
+		fscanf(ptr, "%c", buffer);
+		container[i]=(int)(buffer[0])-48;
+		fscanf(ptr, "%c", buffer);
+	}
+	free(buffer);
+	return;
 }
 
 
@@ -143,7 +192,7 @@ void recognize(int* ans, int count) {
 	dim3 dimBlock(DataWidth, DataWidth, 1);
 	dim3 dimGrid(TrainDataNum, 1, 1);
 	
-	knn<<<dimGrid, dimBlock>>>(trainDataKernel, distantKernel, count);
+	knn<<<dimGrid, dimBlock>>>(trainDataKernel, distantKernel, labelIndexKernel, count);
 	
 	cudaDeviceSynchronize();
 	cuCheck(__LINE__);
@@ -206,7 +255,7 @@ float* matrixMultiply_host(float* hostA, float* hostB) {
 	float *deviceA;
 	float *deviceB;
 	float *deviceC;
-	int numARows=1934;
+	int numARows=TrainDataNum;
 	int numAColumns=1024;
 	int numBRows=numAColumns;
 	int numBColumns=Reduced_Data_Length;
@@ -241,4 +290,9 @@ float* matrixMultiply_host(float* hostA, float* hostB) {
 	free(hostB);
 
 	return hostC;
+}
+
+
+int main() {
+	return 0;
 }
