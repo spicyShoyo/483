@@ -138,7 +138,6 @@ void printFirstDigit(float* datas, int h=32, int w=32) {
 
 //knn code below{{{{{{{{{{{{{{{{{{{{{{{{
 int* labels=NULL;
-int* indexOrigin=NULL;
 float* eigenvectorsDevice;
 float* trainDataPCAHost=NULL;
 float* trainDataPCAKernel=NULL;
@@ -203,10 +202,6 @@ void initTrainDataPCAHost(float* container) {
 }
 
 void initPCAKNN() {
-	indexOrigin=(int*)malloc(TrainDataNum*sizeof(int));
-	for(int i=0; i<1934; ++i) {
-		indexOrigin[i]=i;
-	}
 	labels=(int*)malloc(TrainDataNum*sizeof(int));
 	initLabels(labels);
 	cuCheck(__LINE__);
@@ -289,44 +284,44 @@ __global__ void knn2(float* trainDataKernel, float* distantKernel, int count) {
 }
 
 
-void mergePCA(float* distantHost, int* curIdx, int n, int m) {
+void mergePCA(float* distantHost, int* curLabels, int n, int m) {
 	int i, j, k;
 	float* x=(float*)malloc(n*sizeof(float));
 	int* y=(int*)malloc(n*sizeof(int));
 	for(i=0, j=m, k=0; k<n; k++) {
 		if(j==n) {
 			x[k]=distantHost[i];
-			y[k]=curIdx[i];
+			y[k]=curLabels[i];
 			i+=1;
 		}else if(i==m) {
 			x[k]=distantHost[j];
-			y[k]=curIdx[j];
+			y[k]=curLabels[j];
 			j+=1;
 		}else if(int(distantHost[j])<int(distantHost[i])) {
 			x[k]=distantHost[j];
-			y[k]=curIdx[j];
+			y[k]=curLabels[j];
 			j+=1;
 		}else {
 			x[k]=distantHost[i];
-			y[k]=curIdx[i];
+			y[k]=curLabels[i];
 			i+=1;
 		}
 	}
 	for(int i=0; i<n; i++) {
 		distantHost[i]=x[i];
-		curIdx[i]=y[i];
+		curLabels[i]=y[i];
 	}
 	free(x);
 	free(y);
 }
-void mergeSortPCA(float* distantHost, int* curIdx, int n) {
+void mergeSortPCA(float* distantHost, int* curLabels, int n) {
 	if(n<2) {
 		return;
 	}
 	int m=n/2;
-	mergeSortPCA(distantHost, curIdx, m);
-	mergeSortPCA(distantHost+m, curIdx, n-m);
-	mergePCA(distantHost, curIdx, n, m);
+	mergeSortPCA(distantHost, curLabels, m);
+	mergeSortPCA(distantHost+m, curLabels, n-m);
+	mergePCA(distantHost, curLabels, n, m);
 }
 
 
@@ -336,7 +331,7 @@ void recognizePCA(int* ans, int count) {
 	// dim3 dimGrid(TrainDataNum, 1, 1);
 	dim3 dimBlock(KNN_BLOCK_SIZE, 1, 1);
 	dim3 dimGrid(TrainDataNum, 1, 1);
-	int* curIdx=(int*)malloc(sizeof(int)*TrainDataNum);
+	int* curLabels=(int*)malloc(sizeof(int)*TrainDataNum);
 
 	//knnPCA<<<dimGrid, dimBlock>>>(trainDataPCAKernel, distantPCAKernel, count);
 	knn2<<<dimGrid, dimBlock>>>(trainDataPCAKernel, distantPCAKernel, count);
@@ -345,16 +340,16 @@ void recognizePCA(int* ans, int count) {
 	cudaMemcpy(distantPCAHost, distantPCAKernel, distantPCASize, cudaMemcpyDeviceToHost);
 	cuCheck(__LINE__);
 	for(int j=0; j<count; ++j) {
-		memcpy(curIdx, indexOrigin, sizeof(int)*TrainDataNum);
+		memcpy(curLabels, labels, sizeof(int)*TrainDataNum);
 		float* curDistantHost=distantPCAHost+j*TrainDataNum;
-		mergeSortPCA(curDistantHost, curIdx, TrainDataNum);
+		mergeSortPCA(curDistantHost, curLabels, TrainDataNum);
 		int num[10]={};
 		// if(curDistantHost[0]>180) {
 		// 	ans[j]=-1;
 		// 	continue;
 		// }
 		for(int i=0; i<5; i++) {
-			num[labels[curIdx[i]]]+=1;
+			num[curLabels[i]]+=1;
 		}
 		int curBest=-1;
 		int curInt=-1;
