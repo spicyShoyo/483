@@ -33,6 +33,8 @@
 #define KNN_BLOCK_SIZE 32
 #define TrainDigits "trainData/foo.csv"
 #define TrainLabels "trainData/bar.csv"
+#define PCATrainDigits "explore/trainingData.csv"
+#define PCAVec "explore/eigenvectors.csv"
 #define PCA true
 
 void cuCheck(int line) {
@@ -172,7 +174,7 @@ void initEigenvectors() {
 	float* eigenVectorsHost=(float*)malloc(DataLen*Reduced_Data_Length*sizeof(float));
 	cudaMalloc((void **) &eigenvectorsDevice, DataLen*Reduced_Data_Length*sizeof(float));
 	float* container=eigenVectorsHost;
-	FILE* ptr=fopen("explore/eigenvectors.csv", "r");
+	FILE* ptr=fopen(PCAVec, "r");
 	char* buffer=(char*)malloc(sizeof(char));
 	for(int j=0; j<DataLen; ++j) {
 		for(int i=0; i<Reduced_Data_Length; ++i) {
@@ -189,7 +191,7 @@ void initEigenvectors() {
 
 
 void initTrainDataPCAHost(float* container) {
-	FILE* ptr=fopen("explore/trainingData.csv", "r");
+	FILE* ptr=fopen(PCATrainDigits, "r");
 	char* buffer=(char*)malloc(sizeof(char));
 	for(int i=0; i<TrainDataNum; i++) { 
 		for(int j=0; j<Reduced_Data_Length; j++) {
