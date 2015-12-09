@@ -3,7 +3,7 @@ CXXFLAGS = -arch sm_20
 TESTFLAGS = -G -g
 OBJS_FILES = checkReader.cu
 PCA_FILES = checkReaderPCA.cu
-all:
+non_pca:
 	$(CXX) $(CXXFLAGS) $(OBJS_FILES)
 
 pca:
