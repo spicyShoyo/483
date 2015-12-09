@@ -10,6 +10,8 @@ Compile:
 	 make debug // For debug
 	
 	 make pca // For PCA-KNN
+	
+	 make clean // clean up
 
 Run: 
 	
