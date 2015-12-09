@@ -13,4 +13,5 @@ Compile:
 
 Run: 
 	
-	 ./a.out
+	 ./a.out // For KNN
+	 cuda-memcheck ./a.out // For debug
