@@ -259,44 +259,31 @@ __global__ void knnPCA(float* trainDataKernel, float* distantKernel, int count) 
 }
 
 
-void mergePCA(float* distantHost, int* curLabels, int n, int m) {
-	int i, j, k;
-	float* x=(float*)malloc(n*sizeof(float));
-	int* y=(int*)malloc(n*sizeof(int));
-	for(i=0, j=m, k=0; k<n; k++) {
-		if(j==n) {
-			x[k]=distantHost[i];
-			y[k]=curLabels[i];
-			i+=1;
-		}else if(i==m) {
-			x[k]=distantHost[j];
-			y[k]=curLabels[j];
-			j+=1;
-		}else if(distantHost[j]<distantHost[i]) {
-			x[k]=distantHost[j];
-			y[k]=curLabels[j];
-			j+=1;
-		}else {
-			x[k]=distantHost[i];
-			y[k]=curLabels[i];
-			i+=1;
-		}
-	}
-	for(int i=0; i<n; i++) {
-		distantHost[i]=x[i];
-		curLabels[i]=y[i];
-	}
-	free(x);
-	free(y);
-}
-void mergeSortPCA(float* distantHost, int* curLabels, int n) {
-	if(n<2) {
-		return;
-	}
-	int m=n/2;
-	mergeSortPCA(distantHost, curLabels, m);
-	mergeSortPCA(distantHost+m, curLabels, n-m);
-	mergePCA(distantHost, curLabels, n, m);
+void quick_sort (float *a, int* b, int n) {
+    int i;
+    int j;
+    float p;
+    float t;
+    int t2;
+    if (n < 2)
+        return;
+    p = a[n / 2];
+    for (i = 0, j = n - 1;; i++, j--) {
+        while (a[i] < p)
+            i++;
+        while (p < a[j])
+            j--;
+        if (i >= j)
+            break;
+        t = a[i];
+        a[i] = a[j];
+        a[j] = t;
+        t2=b[i];
+        b[i]=b[j];
+        b[j]=t2;
+    }
+    quick_sort(a, b, i);
+    quick_sort(a + i, b+i, n - i);
 }
 
 
@@ -317,23 +304,17 @@ void recognizePCA(int* ans, int count) {
 	for(int j=0; j<count; ++j) {
 		memcpy(curLabels, labels, sizeof(int)*TrainDataNum);
 		float* curDistantHost=distantPCAHost+j*TrainDataNum;
-		printf("%d-------------\n", j);
-		mergeSortPCA(curDistantHost, curLabels, TrainDataNum);
+		quick_sort(curDistantHost, curLabels, TrainDataNum);
 		int num[10]={};
-		// if(curDistantHost[0]>100) {
-		// 	ans[j]=-1;
-		// 	continue;
-		// }
+		if(curDistantHost[0]>100) {
+			ans[j]=-1;
+			continue;
+		}
 		for(int i=0; i<5; i++) {
 			num[curLabels[i]]+=1;
 		}
 		int curBest=-1;
 		int curInt=-1;
-
-		for(int i=0; i<10; ++i) {
-			printf("::%f, %d\n", curDistantHost[i], curLabels[i]);
-		}
-
 		for(int i=0; i<10; i++) {
 			if(num[i]!=0&&num[i]>curBest) {
 				curBest=num[i];
@@ -692,10 +673,10 @@ int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int
 				for(int j=startX; j<startX+DataWidth; ++j) {
 					int x=j-startX;
 					int y=i-startY;
-					printf("%d", checkMonoHost[i*xSize+j]);
+					//printf("%d", checkMonoHost[i*xSize+j]);
 					digitHost[count*DataLen+y*DataWidth+x]=(float)checkMonoHost[i*xSize+j];
 				}
-				printf("\n");
+				//printf("\n");
 			}
 			++count;
 			left=right;
@@ -720,30 +701,30 @@ void checkReaderHost(int* checkMonoDevice, int ySize=YSIZE, int xSize=XSIZE) {
 	//grab the area left, but later I found that don't really need to.
 	int* ans;
 
-	// ans=readAreaHost(checkMonoDevice, RoutingX, RoutingY, RoutingWidth, RoutingHeight, 15, ySize, xSize);
+	ans=readAreaHost(checkMonoDevice, RoutingX, RoutingY, RoutingWidth, RoutingHeight, 15, ySize, xSize);
 	
-	// char routing[9];
-	// for(int i=0; i<9; ++i) {
-	// 	routing[i]=char(ans[i]+48);
-	// }
-	// char account[6];
-	// for(int i=9; i<15; ++i) {
-	// 	account[i-9]=char(ans[i]+48);
-	// }
-	// free(ans);
-	// printf("Routing Number: %s\n", routing);
-	// printf("Account Number: %s\n", account);
+	char routing[9];
+	for(int i=0; i<9; ++i) {
+		routing[i]=char(ans[i]+48);
+	}
+	char account[6];
+	for(int i=9; i<15; ++i) {
+		account[i-9]=char(ans[i]+48);
+	}
+	free(ans);
+	printf("Routing Number: %s\n", routing);
+	printf("Account Number: %s\n", account);
 
-	// ans=readAreaHost(checkMonoDevice, MoneyX, MoneyY, MoneyWidth, MoneyHeight, 6, ySize, xSize);
-	// float money=0;
-	// int j=0;
-	// while(ans[j]!=-1) {
-	// 	money=money*10+ans[j];
-	// 	j++;
-	// }
-	// money=money/100;
-	// free(ans);
-	// printf("Amount: %.2f\n", money);
+	ans=readAreaHost(checkMonoDevice, MoneyX, MoneyY, MoneyWidth, MoneyHeight, 6, ySize, xSize);
+	float money=0;
+	int j=0;
+	while(ans[j]!=-1) {
+		money=money*10+ans[j];
+		j++;
+	}
+	money=money/100;
+	free(ans);
+	printf("Amount: %.2f\n", money);
 
 	char num[3];
 	ans=readAreaHost(checkMonoDevice, NumX, NumY, NumWidth, NumHeight, 3, ySize, xSize);
@@ -793,6 +774,7 @@ void readSingleCheck(int* in) {
 	free(xSize);
 	cudaFree(checkColoredDevice);
 	cudaFree(checkMonoDevice);
+	printf("\n");
 	return;
 }
 
@@ -1005,6 +987,7 @@ __global__ void resize(int* input, int* output, int input_height, int input_widt
 
 
 int* preprocess(char* fileName){
+	printf("\nCheck: %s\n", fileName);
 	int check_width=0;
 	int check_height=0;
 	int upperleft[2];
@@ -1074,7 +1057,14 @@ int* preprocess(char* fileName){
 
 int main() {
 	initPCAKNN();
+	readSingleCheck(preprocess("testCases/check1.ppm"));
 	readSingleCheck(preprocess("testCases/check2.ppm"));
+	readSingleCheck(preprocess("testCases/check3.ppm"));
+	readSingleCheck(preprocess("testCases/check4.ppm"));
+	readSingleCheck(preprocess("testCases/check5.ppm"));
+	readSingleCheck(preprocess("testCases/check6.ppm"));
+	readSingleCheck(preprocess("testCases/check7.ppm"));
+	readSingleCheck(preprocess("testCases/check8.ppm"));
 	freePCAKNN();
 	return 0;
 }
