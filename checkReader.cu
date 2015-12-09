@@ -35,7 +35,6 @@
 #define TrainLabels "trainData/bar.csv"
 #define PCATrainDigits "explore/trainingData.csv"
 #define PCAVec "explore/eigenvectors.csv"
-#define PCA true
 
 void cuCheck(int line) {
     cudaError_t err = cudaGetLastError();
@@ -704,17 +703,9 @@ int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int
 
 	}
 
-	if(PCA) {
-		
-		setPCAConstant(digitHost, count);
-		
-		recognizePCA(ans, count);
-		
-	}else {
-		// cudaMemcpyToSymbol(testDigit, digitHost, testDigitSize*15);
-		// cuCheck(__LINE__);
-		// getAns(ans, count);
-	}
+	setPCAConstant(digitHost, count);
+	recognizePCA(ans, count);
+
 	free(digitHost);
 	free(checkMonoHost);	
 	return ans;
