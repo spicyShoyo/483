@@ -204,6 +204,7 @@ void initTrainDataPCAHost(float* container) {
 }
 
 void initPCAKNN() {
+	printf("Initiallize...\n");
 	labels=(int*)malloc(TrainDataNum*sizeof(int));
 	initLabels(labels);
 	cuCheck(__LINE__);
@@ -221,6 +222,7 @@ void initPCAKNN() {
 	cuCheck(__LINE__);
 
 	initEigenvectors();
+	printf("Initiallize Done\n");
 }
 
 
@@ -495,7 +497,7 @@ int verificationHost(int* checkColoredDevice, int ySize=YSIZE, int xSize=XSIZE) 
 	free(host_total);
 	cudaFree(device_total);
 
-	printf("number of blue pixels are %d\n", total);
+	//printf("number of blue pixels are %d\n", total);
 
 	if (total>size/8 && total<size/2)
 		return 1;
@@ -988,6 +990,7 @@ __global__ void resize(int* input, int* output, int input_height, int input_widt
 
 int* preprocess(char* fileName){
 	printf("\nCheck: %s\n", fileName);
+	printf("BFS...\n");
 	int check_width=0;
 	int check_height=0;
 	int upperleft[2];
@@ -1002,12 +1005,13 @@ int* preprocess(char* fileName){
 	ppmReader(fileName, &input_image, &height, &width);
 
 	bfs(input_image, upperleft, upperright, lowerleft, lowerright, &check_width, &check_height, width, height);
-	printf("upperleft= %d, %d\n", upperleft[0], upperleft[1]);
-	printf("upperright= %d, %d\n", upperright[0], upperright[1]);
-	printf("lowerleft= %d, %d\n", lowerleft[0], lowerleft[1]);
-	printf("lowerright= %d, %d\n", lowerright[0], lowerright[1]);
-	printf("check_width= %d\n", check_width);
-	printf("check_height= %d\n", check_height);
+	printf("BFS Done\n");
+	// printf("upperleft= %d, %d\n", upperleft[0], upperleft[1]);
+	// printf("upperright= %d, %d\n", upperright[0], upperright[1]);
+	// printf("lowerleft= %d, %d\n", lowerleft[0], lowerleft[1]);
+	// printf("lowerright= %d, %d\n", lowerright[0], lowerright[1]);
+	// printf("check_width= %d\n", check_width);
+	// printf("check_height= %d\n", check_height);
 
 	int center_x=(upperleft[0]+lowerright[0]+upperright[0]+lowerleft[0])/4;
 	int center_y=(upperleft[1]+lowerright[1]+upperright[1]+lowerleft[1])/4;
