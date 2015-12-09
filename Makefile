@@ -13,7 +13,4 @@ debug:
 	$(CXX) $(CXXFLAGS) $(TESTFLAGS) $(OBJS_FILES)
 
 clean:
-	rm -rf $(EXE_BTREE) $(EXE_BTREE)-asan \
-		$(EXE_RACER) \
-		$(OBJS_DIR) \
-		$(RESULTS_DIR)
+	rm ./a.out
