@@ -29,8 +29,8 @@
 #define RED_THRESHOLD 176
 #define GREEN_THRESHOLD 176
 #define BLUE_THRESHOLD 127
-#define TrainDigits "trainData/digits.csv"
-#define TrainLabels "trainData/labels.csv"
+#define TrainDigits "trainData/foo.csv"
+#define TrainLabels "trainData/bar.csv"
 
 
 void cuCheck(int line) {
