@@ -140,7 +140,7 @@ void printFirstDigit(float* datas, int h=32, int w=32) {
 int* labels=NULL;
 float* eigenvectorsDevice;
 float* trainDataPCAHost=NULL;
-float* trainDataPCAKernel=NULL;
+float* trainDataPCADevice=NULL;
 float* distantPCAHost=NULL;
 float* distantPCAKernel=NULL;
 
@@ -148,7 +148,7 @@ void freePCAKNN() {
 	free(labels);
 	cudaFree(eigenvectorsDevice);
 	free(trainDataPCAHost);
-	cudaFree(trainDataPCAKernel);
+	cudaFree(trainDataPCADevice);
 	free(distantPCAHost);
 	cudaFree(distantPCAKernel);
 }
@@ -213,43 +213,16 @@ void initPCAKNN() {
 	int trainDataPCASize=sizeof(float)*Reduced_Data_Length*TrainDataNum;
 	trainDataPCAHost=(float*)malloc(trainDataPCASize);
 	initTrainDataPCAHost(trainDataPCAHost);
-	cudaMalloc((void**) &trainDataPCAKernel, trainDataPCASize);
+	cudaMalloc((void**) &trainDataPCADevice, trainDataPCASize);
 	cuCheck(__LINE__);
-	cudaMemcpy(trainDataPCAKernel, trainDataPCAHost, trainDataPCASize, cudaMemcpyHostToDevice);
+	cudaMemcpy(trainDataPCADevice, trainDataPCAHost, trainDataPCASize, cudaMemcpyHostToDevice);
 	cuCheck(__LINE__);
 
 	initEigenvectors();
 }
 
 
-__global__ void knnPCA(float* trainDataPCAKernel, float* distantPCAKernel, int count) {
-	__shared__ float digit[Reduced_Data_Length];
-	__shared__ float train[Reduced_Data_Length];
-	int tx=threadIdx.x;
-	int bx=blockIdx.x;
-	train[tx]=trainDataPCAKernel[bx*Reduced_Data_Length+tx];
-	for(int i=0; i<count; ++i) {
-		digit[tx]=testPCADigit[i*Reduced_Data_Length+tx];
-		__syncthreads();
-		float cur=digit[tx]-train[tx];
-		cur=cur*cur;
-		digit[tx]=cur;
-		for(int stride=32; stride>0; stride/=2) {
-			__syncthreads();
-			if(tx<stride) {
-				digit[tx]=digit[tx]+digit[tx+stride];
-			}
-		}
-		__syncthreads();
-		if(tx==0) {
-			distantPCAKernel[Reduced_Data_Length*i+bx]=digit[0];
-		}
-		__syncthreads();
-	}
-}
-
-
-__global__ void knn2(float* trainDataKernel, float* distantKernel, int count) {
+__global__ void knnPCA(float* trainDataKernel, float* distantKernel, int count) {
 	__shared__ float digit[Reduced_Data_Length];
 	__shared__ float train[Reduced_Data_Length];
 	int tx=threadIdx.x;
@@ -329,30 +302,19 @@ void recognizePCA(int* ans, int count) {
 	int distantPCASize=sizeof(float)*TrainDataNum*count;
 	int* curLabels=(int*)malloc(sizeof(int)*TrainDataNum);
 
-	float* disHost;
-	float* disDevice;
-	int disSize=sizeof(float)*TrainDataNum*count;
-	disHost=(float*)malloc(disSize);
-	cudaMalloc((void **) &disDevice, disSize);
-
-	// dim3 dimBlock(Reduced_Data_Length, 1, 1);
-	// dim3 dimGrid(TrainDataNum, 1, 1);
-	// knnPCA<<<dimGrid, dimBlock>>>(trainDataPCAKernel, distantPCAKernel, count);
-
-
 	dim3 dimBlock(KNN_BLOCK_SIZE, 1, 1);
 	dim3 dimGrid(TrainDataNum, 1, 1);
-	knn2<<<dimGrid, dimBlock>>>(trainDataPCAKernel, disDevice, count);
+	knnPCA<<<dimGrid, dimBlock>>>(trainDataPCADevice, distantPCAKernel, count);
 
 	cudaDeviceSynchronize();
 	cuCheck(__LINE__);
 
-	cudaMemcpy(disHost, disDevice, disSize, cudaMemcpyDeviceToHost);
+	cudaMemcpy(distantPCAHost, distantPCAKernel, distantPCASize, cudaMemcpyDeviceToHost);
 	cuCheck(__LINE__);
 
 	for(int j=0; j<count; ++j) {
 		memcpy(curLabels, labels, sizeof(int)*TrainDataNum);
-		float* curDistantHost=disHost+j*TrainDataNum;
+		float* curDistantHost=distantPCAHost+j*TrainDataNum;
 		printf("%d-------------\n", j);
 		for(int i=0; i<5; ++i) {
 			printf("%f\n", curDistantHost[i]);
