@@ -221,7 +221,7 @@ void initPCAKNN() {
 	initEigenvectors();
 }
 
-/*
+
 __global__ void knnPCA(float* trainDataPCAKernel, float* distantPCAKernel, int count) {
 	__shared__ float digit[Reduced_Data_Length];
 	__shared__ float train[Reduced_Data_Length];
@@ -247,7 +247,7 @@ __global__ void knnPCA(float* trainDataPCAKernel, float* distantPCAKernel, int c
 		__syncthreads();
 	}
 }
-*/
+
 
 __global__ void knn2(float* trainDataKernel, float* distantKernel, int count) {
 	__shared__ float digit[Reduced_Data_Length];
@@ -297,7 +297,7 @@ void mergePCA(float* distantHost, int* curLabels, int n, int m) {
 			x[k]=distantHost[j];
 			y[k]=curLabels[j];
 			j+=1;
-		}else if(int(distantHost[j])<int(distantHost[i])) {
+		}else if(distantHost[j]<distantHost[i]) {
 			x[k]=distantHost[j];
 			y[k]=curLabels[j];
 			j+=1;
@@ -327,24 +327,39 @@ void mergeSortPCA(float* distantHost, int* curLabels, int n) {
 
 void recognizePCA(int* ans, int count) {
 	int distantPCASize=sizeof(float)*TrainDataNum*count;
-	// dim3 dimBlock(Reduced_Data_Length, 1, 1);
-	// dim3 dimGrid(TrainDataNum, 1, 1);
-	dim3 dimBlock(KNN_BLOCK_SIZE, 1, 1);
-	dim3 dimGrid(TrainDataNum, 1, 1);
 	int* curLabels=(int*)malloc(sizeof(int)*TrainDataNum);
 
-	//knnPCA<<<dimGrid, dimBlock>>>(trainDataPCAKernel, distantPCAKernel, count);
-	knn2<<<dimGrid, dimBlock>>>(trainDataPCAKernel, distantPCAKernel, count);
+	float* disHost;
+	float* disDevice;
+	int disSize=sizeof(float)*TrainDataNum*count;
+	disHost=(float*)malloc(disSize);
+	cudaMalloc((void **) &disDevice, disSize);
+
+	// dim3 dimBlock(Reduced_Data_Length, 1, 1);
+	// dim3 dimGrid(TrainDataNum, 1, 1);
+	// knnPCA<<<dimGrid, dimBlock>>>(trainDataPCAKernel, distantPCAKernel, count);
+
+
+	dim3 dimBlock(KNN_BLOCK_SIZE, 1, 1);
+	dim3 dimGrid(TrainDataNum, 1, 1);
+	knn2<<<dimGrid, dimBlock>>>(trainDataPCAKernel, disDevice, count);
+
 	cudaDeviceSynchronize();
 	cuCheck(__LINE__);
-	cudaMemcpy(distantPCAHost, distantPCAKernel, distantPCASize, cudaMemcpyDeviceToHost);
+
+	cudaMemcpy(disHost, disDevice, disSize, cudaMemcpyDeviceToHost);
 	cuCheck(__LINE__);
+
 	for(int j=0; j<count; ++j) {
 		memcpy(curLabels, labels, sizeof(int)*TrainDataNum);
-		float* curDistantHost=distantPCAHost+j*TrainDataNum;
+		float* curDistantHost=disHost+j*TrainDataNum;
+		printf("%d-------------\n", j);
+		for(int i=0; i<5; ++i) {
+			printf("%f\n", curDistantHost[i]);
+		}
 		mergeSortPCA(curDistantHost, curLabels, TrainDataNum);
 		int num[10]={};
-		// if(curDistantHost[0]>180) {
+		// if(curDistantHost[0]>100) {
 		// 	ans[j]=-1;
 		// 	continue;
 		// }
@@ -353,6 +368,11 @@ void recognizePCA(int* ans, int count) {
 		}
 		int curBest=-1;
 		int curInt=-1;
+
+		for(int i=0; i<5; ++i) {
+			printf("::%f\n", curDistantHost[i]);
+		}
+
 		for(int i=0; i<10; i++) {
 			if(num[i]!=0&&num[i]>curBest) {
 				curBest=num[i];
@@ -638,7 +658,8 @@ void setPCAConstant(float* digitHost, int count) {
 	cudaDeviceSynchronize();
 	cuCheck(__LINE__);
 
-	cudaMemcpyToSymbol(testPCADigit, digitPCADevice, Reduced_Data_Length*count);
+	cudaMemcpyToSymbol(testPCADigit, digitPCADevice, Reduced_Data_Length*count*sizeof(float));
+
 	cuCheck(__LINE__);
 	cudaFree(digitDevice);
 	cudaFree(digitPCADevice);
