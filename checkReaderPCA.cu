@@ -31,10 +31,12 @@
 #define BLUE_THRESHOLD 127
 #define Reduced_Data_Length 64
 #define KNN_BLOCK_SIZE 32
-#define PCATrainDigits "pcaData/trainingData.csv"
-#define PCATrainLabels "pcaData/labelsPCA.csv"
-#define PCAVec "pcaData/eigenvectors.csv"
-#define K 8
+#define TrainDigits "trainData/digits.csv"
+#define TrainLabels "trainData/labels.csv"
+#define PCATrainDigits "explore/trainingData.csv"
+#define PCATrainLabels "explore/labelsPCA.csv"
+#define PCAVec "explore/eigenvectors.csv"
+#define K 4
 
 void cuCheck(int line) {
     cudaError_t err = cudaGetLastError();
@@ -78,6 +80,17 @@ void ppmReader(char* fileName, int** container, int* canvasHeight, int* canvasWi
 
 
 //output black/white in gray scale
+void monoWritterP2(int* image, int ySize, int xSize, char* fileName) {
+	FILE *ptr=fopen(fileName, "w");
+	fprintf(ptr, "P2\n");
+	fprintf(ptr, "%d %d\n", xSize, ySize);
+	fprintf(ptr, "255\n");
+	for(int i=0; i<ySize*xSize; ++i) {
+		fprintf(ptr, "%d\n", 255*(1-image[i]));
+	}
+	return;
+}
+
 
 void ppmWritter(char* fileName, int* container, int canvasHeight, int canvasWidth) {
 	FILE *ptr=fopen(fileName, "w");
@@ -192,6 +205,7 @@ void initTrainDataPCAHost(float* container) {
 }
 
 void initPCAKNN() {
+	printf("Initiallize...\n");
 	labels=(int*)malloc(TrainDataNum*sizeof(int));
 	initLabels(labels);
 	cuCheck(__LINE__);
@@ -209,6 +223,7 @@ void initPCAKNN() {
 	cuCheck(__LINE__);
 
 	initEigenvectors();
+	printf("Initiallize Done\n");
 }
 
 
@@ -483,7 +498,7 @@ int verificationHost(int* checkColoredDevice, int ySize=YSIZE, int xSize=XSIZE) 
 	free(host_total);
 	cudaFree(device_total);
 
-	printf("number of blue pixels are %d\n", total);
+	//printf("number of blue pixels are %d\n", total);
 
 	if (total>size/8 && total<size/2)
 		return 1;
@@ -516,6 +531,8 @@ void toMonoHost(int** checkMonoDevice, int* checkColoredDevice, int ySize=YSIZE,
 	toMonoDevice<<<dimGrid, dimBlock>>>(*checkMonoDevice, checkColoredDevice, ySize, xSize);
 	cudaDeviceSynchronize();
 	cuCheck(__LINE__);
+
+	// outputImage(*checkMonoDevice, ySize, xSize, "checkMono.pgm");
 
 	return;
 }
@@ -589,7 +606,7 @@ void setPCAConstant(float* digitHost, int count) {
 
 
 int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int grabHeight, int num, int ySize=YSIZE, int xSize=XSIZE) {
-
+	//outputImage(checkMonoDevice, ySize, xSize, "area.pgm");
 	int count=0;
 	int checkMonoSize=sizeof(int)*ySize*xSize;
 	int* checkMonoHost=(int*)malloc(checkMonoSize);
@@ -613,12 +630,12 @@ int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int
 	getHorizonDevice<<<dimGrid, dimBlock>>>(horizonDevice, checkMonoDevice, grabX, grabY, grabWidth, grabHeight, ySize, xSize);
 	cudaDeviceSynchronize();
 	cuCheck(__LINE__);
-	
+	//outputImage(horizonDevice, 1, grabWidth);
 	cudaMemcpy(horizonHost, horizonDevice, horizonSize, cudaMemcpyDeviceToHost);
 	cudaFree(horizonDevice);
 	cuCheck(__LINE__);
 	float* digitHost=(float*)malloc(sizeof(float)*DataLen*15);
-	
+	// int testDigitSize=sizeof(float)*DataLen;
 	int left=0;
 	int right=0;
 	while(left<grabWidth&&count<num) {
@@ -633,7 +650,7 @@ int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int
 			int midX=(left+right)/2+grabX;
 			int top=-1;
 			int bottom=-1;
-			
+			//printf("%d, %d\n", left, right);
 			for(int y=0; (y<grabHeight/2&&((top==-1)||(bottom==-1))); ++y) {
 				int yt=y+grabY;
 				int yb=grabY+grabHeight-y;
@@ -653,8 +670,10 @@ int* readAreaHost(int* checkMonoDevice, int grabX, int grabY, int grabWidth, int
 				for(int j=startX; j<startX+DataWidth; ++j) {
 					int x=j-startX;
 					int y=i-startY;
+					//printf("%d", checkMonoHost[i*xSize+j]);
 					digitHost[count*DataLen+y*DataWidth+x]=(float)checkMonoHost[i*xSize+j];
 				}
+				//printf("\n");
 			}
 			++count;
 			left=right;
@@ -886,7 +905,7 @@ void bfs(int *image_container, int *upperleft, int *upperright, int *lowerleft, 
 	free(coordinates_y);
 	free(visited);
 
-	if (!width_greater_than_height(upperleft, upperright, lowerleft, lowerright)){
+	if (!width_greater_than_height(upperleft, upperright, lowerleft, lowerright)){ //to be tested
 		int x=upperleft[0];
 		int y=upperleft[1];
 		upperleft[0]=upperright[0];
@@ -966,6 +985,7 @@ __global__ void resize(int* input, int* output, int input_height, int input_widt
 
 int* preprocess(char* fileName){
 	printf("\nCheck: %s\n", fileName);
+	printf("BFS...\n");
 	int check_width=0;
 	int check_height=0;
 	int upperleft[2];
@@ -980,12 +1000,13 @@ int* preprocess(char* fileName){
 	ppmReader(fileName, &input_image, &height, &width);
 
 	bfs(input_image, upperleft, upperright, lowerleft, lowerright, &check_width, &check_height, width, height);
-	printf("upperleft= %d, %d\n", upperleft[0], upperleft[1]);
-	printf("upperright= %d, %d\n", upperright[0], upperright[1]);
-	printf("lowerleft= %d, %d\n", lowerleft[0], lowerleft[1]);
-	printf("lowerright= %d, %d\n", lowerright[0], lowerright[1]);
-	printf("check_width= %d\n", check_width);
-	printf("check_height= %d\n", check_height);
+	printf("BFS Done\n");
+	// printf("upperleft= %d, %d\n", upperleft[0], upperleft[1]);
+	// printf("upperright= %d, %d\n", upperright[0], upperright[1]);
+	// printf("lowerleft= %d, %d\n", lowerleft[0], lowerleft[1]);
+	// printf("lowerright= %d, %d\n", lowerright[0], lowerright[1]);
+	// printf("check_width= %d\n", check_width);
+	// printf("check_height= %d\n", check_height);
 
 	int center_x=(upperleft[0]+lowerright[0]+upperright[0]+lowerleft[0])/4;
 	int center_y=(upperleft[1]+lowerright[1]+upperright[1]+lowerleft[1])/4;

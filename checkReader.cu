@@ -29,6 +29,9 @@
 #define RED_THRESHOLD 176
 #define GREEN_THRESHOLD 176
 #define BLUE_THRESHOLD 127
+#define TrainDigits "originalData/digits.csv"
+#define TrainLabels "originalData/labels.csv"
+
 
 void cuCheck(int line) {
     cudaError_t err = cudaGetLastError();
@@ -171,10 +174,10 @@ __global__ void knn(float* trainDataKernel, float* distantKernel, int count) {
 }
 
 
-// input: the pointer to hold the training data
-// return: return by pointer of the training data
+// input: the pointer to hold the training datas
+// return: return by pointer of the training datas
 void initTrainDataHost(float* container) {
-	FILE* ptr=fopen("foo.csv", "r");
+	FILE* ptr=fopen(TrainDigits, "r");
 	char* buffer=(char*)malloc(sizeof(char));
 	for(int j=0; j<TrainDataNum; ++j) { 
 		for(int i=0; i<DataLen; ++i) {
@@ -193,7 +196,7 @@ void initTrainDataHost(float* container) {
 //this is because the training data only holds the data
 //it self, so here is what the data is.
 void initDigits(int* container) {
-	FILE* ptr=fopen("bar.csv", "r");
+	FILE* ptr=fopen(TrainLabels, "r");
 	char* buffer=(char*)malloc(sizeof(char));
 	for(int i=0; i<TrainDataNum; ++i) {
 		fscanf(ptr, "%c", buffer);
@@ -237,25 +240,32 @@ void freeKNN() {
 void merge(float* distantHost, int n, int m) {
 	int i, j, k;
 	float* x=(float*)malloc(n*sizeof(float));
+	// int* y=(int*)malloc(n*sizeof(int));
 	for(i=0, j=m, k=0; k<n; k++) {
 		if(j==n) {
 			x[k]=distantHost[i];
+			// y[k]=digits[i];
 			i+=1;
 		}else if(i==m) {
 			x[k]=distantHost[j];
+			// y[k]=digits[j];
 			j+=1;
 		}else if(int(distantHost[j])<int(distantHost[i])) {
 			x[k]=distantHost[j];
+			// y[k]=digits[j];
 			j+=1;
 		}else {
 			x[k]=distantHost[i];
+			// y[k]=digits[i];
 			i+=1;
 		}
 	}
 	for(int i=0; i<n; i++) {
 		distantHost[i]=x[i];
+		// digits[i]=y[i];
 	}
 	free(x);
+	// free(y);
 }
 
 
@@ -303,6 +313,70 @@ void recognize(int* ans, int count) {
 		ans[j]=curInt;
 	}
 }
+
+
+//noise reduction code below{{{{{{{{{{{{{{{{{{{{{{{{
+__constant__ float Mask[KernelWidth][KernelWidth];
+
+//this one is convolution in 2d for reduce noise
+__global__ void conv2d(int* A, int* B, const int ySize, const int xSize) {
+	__shared__ float sharedM[BlockWidth][BlockWidth];
+	int tx=threadIdx.x;
+	int ty=threadIdx.y;
+	int colO=blockIdx.x*TileWidth+threadIdx.x;
+	int rowO=blockIdx.y*TileWidth+threadIdx.y;
+	int colI=colO-KernelRadius;
+	int rowI=rowO-KernelRadius;
+
+	if((colI>=0)&&(colI<xSize)&&(rowI>=0)&&(rowI<ySize)) {
+		sharedM[tx][ty]=A[rowI*xSize+colI];
+	}else {
+		sharedM[tx][ty]=0;
+	}
+	__syncthreads();
+
+	float output=0;
+	if(tx<TileWidth&&ty<TileWidth) {
+		for(int y=0; y<KernelWidth; ++y) {
+			for(int x=0; x<KernelWidth; ++x) {
+				output+=Mask[x][y]*sharedM[tx+x][ty+y];
+			}
+		}
+	}
+	output=output>15? 1:0;
+	if(rowO<ySize&&colO<xSize&&tx<TileWidth&&ty<TileWidth) {
+		B[rowO*xSize+colO]=output;
+	}
+}
+
+
+//reduce the noise of the canvas
+void noiseReduct(int* digit, int ySize, int xSize) {
+	int maskSize=sizeof(float)*KernelWidth*KernelWidth;
+	float* maskHost=(float*)malloc(maskSize);
+	for(int i=0; i<KernelWidth*KernelWidth; ++i) {
+		maskHost[i]=1;
+	}
+	cudaMemcpyToSymbol(Mask, maskHost, maskSize);
+	free(maskHost);
+
+	int digitSize=ySize*xSize*sizeof(int);
+	
+	int* digitInput;
+	int* digitOutput;
+	digitInput=digit;
+	cudaMalloc((void**) &digitOutput, digitSize);
+	cuCheck(__LINE__);
+	dim3 dimBlock(BlockWidth, BlockWidth, 1);
+	dim3 dimGrid(ceil(xSize/(float)TileWidth), ceil(ySize/(float)TileWidth), 1);
+	conv2d<<<dimGrid, dimBlock>>>(digitInput, digitOutput, ySize, xSize);
+	cudaDeviceSynchronize();
+	cuCheck(__LINE__);
+	cudaMemcpy(digit, digitOutput, digitSize, cudaMemcpyDeviceToHost);
+	cuCheck(__LINE__);
+	cudaFree(digitOutput);
+}
+//noise reduction code above}}}}}}}}}}}}}}}}}}}}}}}
 
 
 //strip elimination below{{{{{{{{{{{{{{{{{{{{{{{{
@@ -507,6 +581,8 @@ void toMonoHost(int** checkMonoDevice, int* checkColoredDevice, int ySize=YSIZE,
 	toMonoDevice<<<dimGrid, dimBlock>>>(*checkMonoDevice, checkColoredDevice, ySize, xSize);
 	cudaDeviceSynchronize();
 	cuCheck(__LINE__);
+
+	// outputImage(*checkMonoDevice, ySize, xSize, "checkMono.pgm");
 
 	return;
 }
@@ -829,7 +905,7 @@ void bfs(int *image_container, int *upperleft, int *upperright, int *lowerleft, 
 	free(coordinates_y);
 	free(visited);
 
-	if (!width_greater_than_height(upperleft, upperright, lowerleft, lowerright)){
+	if (!width_greater_than_height(upperleft, upperright, lowerleft, lowerright)){ //to be tested
 		int x=upperleft[0];
 		int y=upperleft[1];
 		upperleft[0]=upperright[0];
@@ -968,7 +1044,7 @@ int* preprocess(char* fileName){
 	cudaFree(device_raw_output);
 	cuCheck(__LINE__);
 
-	ppmWritter("output.pgm", output_resized_image, YSIZE, XSIZE);
+	//ppmWritter("output.pgm", output_resized_image, YSIZE, XSIZE);
 	free(input_image);
 	free(output_resized_image);
 	return device_resized_output;
@@ -977,7 +1053,9 @@ int* preprocess(char* fileName){
 
 int main() {
 	initKNN();
-	readSingleCheck(preprocess("check15.ppm"));
+
+	readSingleCheck(preprocess("testCases/check2.ppm"));
+
 	freeKNN();
 	return 0;
 }
