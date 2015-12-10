@@ -1,9 +1,9 @@
 CXX = nvcc
 CXXFLAGS = -arch sm_20
 TESTFLAGS = -G -g
-OBJS_FILES = checkReader.cu
-PCA_FILES = checkReaderPCA.cu
-TIME_FILES = checkReaderPCATime.cu
+OBJS_FILES = src/checkReader.cu
+PCA_FILES = src/checkReaderPCA.cu
+TIME_FILES = src/checkReaderPCATime.cu
 
 all:
 	$(CXX) $(CXXFLAGS) $(PCA_FILES)
