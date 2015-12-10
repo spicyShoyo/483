@@ -25,7 +25,5 @@ Run:
 Members: 
 
 	 Mengxiong Liu mliu60@illinois.edu
-	 
 	 Zhengchao Liu zliu80@illinois.edu
-	 
 	 Qiwen Chen qchen33@illinois.edu
