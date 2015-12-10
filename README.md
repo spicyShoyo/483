@@ -20,3 +20,8 @@ Run:
 	
 	 ./a.out // For KNN
 	 cuda-memcheck ./a.out // For debug
+
+Members: 
+	 Mengxiong Liu mliu60@illinois.edu
+	 Zhengchao Liu zliu80@illinois.edu
+	 Qiwen Chen qchen33@illinois.edu
