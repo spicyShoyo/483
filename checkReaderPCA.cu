@@ -785,11 +785,11 @@ bool isBlack_pixel(int x, int y, int *image_container, int width){
 
 bool isBlack(int* container, int x, int y, int ySize, int xSize) {
 	int sum=0;
-	for(int i=-1; i<2; i+=1) {
-		for(int j=-1; j<2; j+=1) {
+	for(int j=-1; j<2; j++) {
+		for(int i=-1; i<2; i++) {
 			int xi=x+i;
 			int yi=y+j;
-			if(xi>=0 && xi<xSize && yi>=0 && yi<ySize)
+			if(xi>-1 && xi<xSize && yi>-1 && yi<ySize)
 				if(isBlack_pixel(xi, yi, container, xSize))
 					sum+=1;
 		}
