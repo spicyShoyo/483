@@ -12,7 +12,7 @@ Compile:
 
 	 make debug // For debug
 	
-	 make pca // For KNN
+	 make knn // For KNN
 	
 	 make clean // clean up
 
